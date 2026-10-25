@@ -31,6 +31,14 @@ WhatsApp's message attributes (`data-id` holds their contact id,
 over the reply. The ⚡ message is sent while the reply is open, so it goes out
 as a reply to their message.
 
+### The ⚡ button on messages
+
+Hover over someone's message and a small ⚡ button appears beside it; click it
+to zap the author (21 sats by default, the same amount as reactions). It only
+pays: nothing is posted, and the message box is left alone. The extension draws
+this button itself, so it works whatever WhatsApp's own reaction markup looks
+like. Your own messages get no button. Turn it off under Settings.
+
 ### Reacting with ⚡
 
 React to a message with ⚡ and its author is zapped — 21 sats by default,
@@ -283,7 +291,9 @@ relying on this:
 - mention chips (`data-app-text-template`),
 - the header ⋮ button and its dropdown items (`data-animate-dropdown-item`),
 - WhatsApp's mention list after typing `@` (`[role="listbox"] [role="option"]` is assumed),
-- `body.dark`, which is how WhatsApp marks its dark theme (the dialogs follow it).
+- `body.dark`, which is how WhatsApp marks its dark theme (the dialogs follow it),
+- the chat header, which tells groups from private chats when no message
+  carries the group's id (a member list, "group info", or the group icon).
 
 WhatsApp's message box is a Lexical editor. The smoke test runs one with real
 Lexical (`tests/fixtures/lexical-composer.ts`), with mention nodes and a member

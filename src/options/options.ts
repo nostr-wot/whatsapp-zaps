@@ -4,7 +4,7 @@
  */
 import {
   DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
-  TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY,
+  TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
 } from '../constants.ts';
 import {
   normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore,
@@ -238,8 +238,15 @@ $('search').addEventListener('submit', event => {
 
 // ── Settings ──
 
+$<HTMLInputElement>('zap-button').addEventListener('change', async event => {
+  const on = (event.currentTarget as HTMLInputElement).checked;
+  await chrome.storage.local.set({ [ZAP_BUTTON_KEY]: on });
+  setStatus(on ? 'The ⚡ button shows beside messages.' : 'The ⚡ button is off.');
+});
+
 async function renderSettings() {
-  const stored = await chrome.storage.local.get([MY_PUBKEY_KEY, REACTION_AMOUNT_KEY]);
+  const stored = await chrome.storage.local.get([MY_PUBKEY_KEY, REACTION_AMOUNT_KEY, ZAP_BUTTON_KEY]);
+  $<HTMLInputElement>('zap-button').checked = stored[ZAP_BUTTON_KEY] !== false;
   const me = stored[MY_PUBKEY_KEY];
   $<HTMLInputElement>('my-npub').value = typeof me === 'string' && /^[0-9a-f]{64}$/.test(me) ? npubEncode(me) : '';
   const amount = stored[REACTION_AMOUNT_KEY];

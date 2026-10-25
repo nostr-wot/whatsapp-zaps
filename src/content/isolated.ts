@@ -50,7 +50,8 @@ import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../const
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installReplyTracker } from '../whatsapp/replies.ts';
 import { installReactionWatcher } from '../whatsapp/reactions.ts';
-import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY, TRACE_REACTIONS_UNTIL_KEY } from '../constants.ts';
+import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY } from '../constants.ts';
+import { installZapButton } from '../whatsapp/zapButton.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
@@ -95,6 +96,21 @@ if (isExtensionAlive()) void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PRE
   }
   if (typeof stored[POST_PREFERENCE_KEY] === 'boolean') postByDefault = stored[POST_PREFERENCE_KEY];
 });
+
+// Kept in step with Settings, for the zap button's tooltip.
+let reactionSats = DEFAULT_REACTION_SATS;
+let zapButtonOn = true;
+if (isExtensionAlive()) {
+  void chrome.storage.local.get([REACTION_AMOUNT_KEY, ZAP_BUTTON_KEY]).then(s => {
+    if (typeof s[REACTION_AMOUNT_KEY] === 'number') reactionSats = s[REACTION_AMOUNT_KEY];
+    if (typeof s[ZAP_BUTTON_KEY] === 'boolean') zapButtonOn = s[ZAP_BUTTON_KEY];
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (typeof changes[REACTION_AMOUNT_KEY]?.newValue === 'number') reactionSats = changes[REACTION_AMOUNT_KEY].newValue;
+    if (ZAP_BUTTON_KEY in changes) zapButtonOn = changes[ZAP_BUTTON_KEY].newValue !== false;
+  });
+}
 
 async function reactionAmount(): Promise<number> {
   if (!isExtensionAlive()) return DEFAULT_REACTION_SATS;
@@ -226,6 +242,18 @@ const reactions = installReactionWatcher(row => {
   });
 }, undefined, (what, html) => traceReaction(what, html));
 uninstallers.push(reactions.uninstall);
+
+// ⚡ button beside someone's message on hover: zap its author.
+uninstallers.push(installZapButton(row => {
+  if (orphaned() || busy) return;
+  const author = readMessageAuthor(row);
+  if (author.fromMe) return;
+  busy = true;
+  void reactionAmount()
+    .then(amount => runReactionZap({ ...author, messageId: row.getAttribute('data-id') ?? '' }, amount, chatContext(), zapDeps(null),
+      'For this message. Nothing is posted in the chat.'))
+    .finally(() => { busy = false; });
+}, { amount: () => reactionSats, shouldHandle: () => zapButtonOn && current() }));
 
 // Troubleshooting (Settings → "Record reaction clicks"): for ten minutes, keep
 // the markup of clicks outside the chat and of what appears inside messages.

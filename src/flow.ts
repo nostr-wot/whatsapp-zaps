@@ -226,7 +226,10 @@ export interface ReactionTarget {
  * already the message in the chat, so nothing is posted and the message box
  * (perhaps holding a draft) is never touched. Own messages are ignored.
  */
-export async function runReactionZap(target: ReactionTarget, amountSats: number, chat: ChatContext, deps: ZapDeps): Promise<FlowResult> {
+export async function runReactionZap(
+  target: ReactionTarget, amountSats: number, chat: ChatContext, deps: ZapDeps,
+  reason = 'For your ⚡ reaction. The reaction stays whether or not you pay.',
+): Promise<FlowResult> {
   if (target.fromMe) return 'invalid';
   // Group messages name their author's contact id; in a private chat the author
   // is the person the chat is with (saved under their id), so prefer that.
@@ -243,7 +246,7 @@ export async function runReactionZap(target: ReactionTarget, amountSats: number,
   return zapRecipient(deps, chat, recipient, amountSats, '', {
     key: `reaction|${target.messageId}`,
     chatMessage: null,
-    reason: 'For your ⚡ reaction. The reaction stays whether or not you pay.',
+    reason,
   });
 }
 

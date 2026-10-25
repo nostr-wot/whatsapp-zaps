@@ -433,7 +433,7 @@ export async function writeWithMention(
   const observer = new MutationObserver(records => {
     for (const record of records) {
       for (const node of Array.from(record.addedNodes)) {
-        if (node.nodeType === 1 && !composer.contains(node) && !(node as Element).closest('[data-whatsapp-zaps]')) appeared.push(node as Element);
+        if (node.nodeType === 1 && !composer.contains(node) && !(node as Element).closest('[data-whatsapp-zaps], [data-whatsapp-zaps-ui]')) appeared.push(node as Element);
       }
     }
   });
@@ -553,8 +553,30 @@ export function readChatContact(doc: Document = document): ChatContact | null {
   const title = readChatTitle(doc);
   const id = readChatId(doc);
   if (id?.endsWith('@g.us')) return { kind: 'group', chatKey: `jid:${id}`, title: title ?? 'this group' };
+  // Without a group id on the page, the header still tells: groups list their
+  // members ("Ana, Bob, You") or say "group info" there.
+  if (!id?.endsWith('@c.us') && headerLooksLikeGroup(doc)) {
+    return { kind: 'group', chatKey: readChatKey(doc) ?? `title:${normalizeName(title ?? 'group')}`, title: title ?? 'this group' };
+  }
   if (!title && !id) return null;
   return { kind: 'contact', id, name: title ?? id! };
+}
+
+/** The chat header reads like a group's: a member list, or a "group" hint, or the group icon. */
+export function headerLooksLikeGroup(doc: Document = document): boolean {
+  const header = doc.querySelector('#main header');
+  if (!header) return false;
+  if (header.querySelector('[data-icon*="group"]')) return true;
+  const title = readChatTitle(doc) ?? '';
+  for (const el of Array.from(header.querySelectorAll('span, div'))) {
+    if (el.children.length) continue;
+    const text = normalizeText(el.getAttribute('title') || el.textContent || '');
+    if (!text || text === title) continue;
+    if (/\b(group|grupo|groupe|gruppe|gruppo)\b/i.test(text)) return true;
+    const names = text.split(/,\s*/);
+    if (names.length >= 3 || (names.length >= 2 && names.some(n => /^(you|tú|tu|vos|você)$/i.test(n)))) return true;
+  }
+  return false;
 }
 
 // ── Replies ──
@@ -611,13 +633,17 @@ export function readMessageAuthor(row: Element): MessageAuthor {
 
 /** The texts WhatsApp shows in the footer outside the message box: the reply preview, when replying. */
 export function footerTextsOutsideComposer(doc: Document = document): string[] {
-  const footer = doc.querySelector('#main footer') ?? doc.querySelector('footer');
+  // WhatsApp may draw the reply box above the footer rather than inside it, so
+  // read the whole conversation pane, leaving out the header, the messages
+  // themselves, the message box and this extension's own elements.
+  const pane = doc.querySelector('#main') ?? doc.querySelector('footer');
   const composer = findComposer(doc);
-  if (!footer) return [];
+  if (!pane) return [];
   const texts: string[] = [];
-  const walker = doc.createTreeWalker(footer, 4 /* NodeFilter.SHOW_TEXT */);
+  const walker = doc.createTreeWalker(pane, 4 /* NodeFilter.SHOW_TEXT */);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (composer?.contains(node)) continue;
+    if (node.parentElement?.closest('header, [role="row"], [data-id], [role="application"], [data-whatsapp-zaps], [data-whatsapp-zaps-ui]')) continue;
     const text = normalizeText(node.nodeValue ?? '');
     if (text) texts.push(text);
   }

@@ -186,7 +186,7 @@ export function installReactionWatcher(
     if (event.type === 'pointerdown') {
       if (messageRowOf(target)) { row = lastRow() ?? messageRowOf(target); rowAt = now(); }
       if (target.closest('footer')) footerAt = now();
-      else if (!target.closest('[data-whatsapp-zaps]')) {
+      else if (!target.closest('[data-whatsapp-zaps], [data-whatsapp-zaps-ui]')) {
         snapshot = new Map([...doc.querySelectorAll('#main [data-id]')].map(r => [r, lightningBadges(r)]));
         snapshotAt = now();
         if (trace && !messageRowOf(target)) {
@@ -196,7 +196,7 @@ export function installReactionWatcher(
       }
     }
     if (!isLightningEmoji(target)) return;
-    if (target.closest('footer') || messageRowOf(target) || target.closest('[data-whatsapp-zaps]')) return;
+    if (target.closest('footer') || messageRowOf(target) || target.closest('[data-whatsapp-zaps], [data-whatsapp-zaps-ui]')) return;
     // One press fires pointerdown, mousedown and click: act on the first. A new
     // pointerdown is always a new press; mousedown/click right after one are not.
     if (event.type !== 'pointerdown' && now() - lastGestureAt < 800) return;

@@ -1,3 +1,9 @@
 node_modules/
 dist/
 *.zip
+
+# Screenshots and diagnostics dropped here for debugging: never commit (they show chats).
+/*.png
+/*.jpg
+/*.txt
+/*.json.local

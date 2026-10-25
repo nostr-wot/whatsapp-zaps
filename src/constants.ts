@@ -76,6 +76,9 @@ export const REACTION_AMOUNT_KEY = 'reactionZapSats';
 
 export const DEFAULT_REACTION_SATS = 21;
 
+/** Show the ⚡ zap button beside messages on hover (default on). */
+export const ZAP_BUTTON_KEY = 'zapButton';
+
 /** Their follow list, cached: `{ pubkey, at, follows: string[] }`. */
 export const FOLLOWS_CACHE_KEY = 'followsCache';
 

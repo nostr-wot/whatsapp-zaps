@@ -151,3 +151,40 @@ describe('messageRowOf — next to the bubble', () => {
     assert.equal(messageRowOf(document.body), null);
   });
 });
+
+describe('reply box and group header, without ids on the page', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+
+  it('finds the reply box drawn above the footer, not inside it', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    const box = document.createElement('div');
+    box.innerHTML = '<div><span>Ana Paula</span><span>hi</span></div><span data-icon="x"></span>';
+    document.querySelector('footer')!.before(box);
+    assert.equal(findReplyTarget(null)?.row, rows()[0]);
+  });
+
+  it('tells a group from its header when no message carries the group id (the screenshot case)', async () => {
+    const { headerLooksLikeGroup, readChatContact } = await import('../src/whatsapp/dom.ts');
+    for (const row of rows()) row.removeAttribute('data-id');
+    const header = document.querySelector('#main header')!;
+    assert.equal(headerLooksLikeGroup(), false);
+    assert.equal(readChatContact()?.kind, 'contact');
+    const subtitle = document.createElement('span');
+    subtitle.setAttribute('title', 'Analia Acosta, Bob, You');
+    subtitle.textContent = 'Analia Acosta, Bob, You';
+    header.append(subtitle);
+    assert.equal(headerLooksLikeGroup(), true);
+    assert.deepEqual(readChatContact(), { kind: 'group', chatKey: 'title:friends & family', title: 'Friends & Family' });
+    subtitle.textContent = 'click here for group info';
+    subtitle.removeAttribute('title');
+    assert.equal(headerLooksLikeGroup(), true);
+  });
+
+  it('does not take a private chat’s "online" or "last seen" for a group', async () => {
+    const { headerLooksLikeGroup } = await import('../src/whatsapp/dom.ts');
+    const subtitle = document.createElement('span');
+    subtitle.textContent = 'last seen today at 10:30';
+    document.querySelector('#main header')!.append(subtitle);
+    assert.equal(headerLooksLikeGroup(), false);
+  });
+});

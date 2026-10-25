@@ -635,6 +635,48 @@ try {
   assert.match(spriteText ?? '', /Confirm zap.*21 sats.*For your ⚡ reaction/s);
   await sprite.close();
 
+  // 19. The ⚡ button beside a message: hover, click, confirm, pay — nothing posted.
+  const hover = await context.newPage();
+  await hover.addInitScript(() => {
+    const calls = (window.__weblnCalls = []);
+    window.webln = { enabled: true, async enable() {}, async sendPayment(pr) { calls.push(pr); return { preimage: 'cc'.repeat(32) }; } };
+  });
+  await hover.goto(`https://web.whatsapp.com/?lexical=1&text=${encodeURIComponent('my draft')}`);
+  await hover.waitForFunction(() => window.__lexicalReady);
+  await hover.evaluate(() => {
+    document.querySelectorAll('#main [data-id]')[0].setAttribute('data-id', 'false_120363000000000000@g.us_HOVER_5491100000000@c.us');
+  });
+  await hover.hover('#main [data-id] [data-pre-plain-text]');
+  const hoverCdp = await context.newCDPSession(hover);
+  // The button lives in a closed shadow root: find its box through CDP and click it for real.
+  let box = null;
+  for (let i = 0; i < 30 && !box; i++) {
+    const { root } = await hoverCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const btn = (function find(n) {
+      if (n.nodeName === 'BUTTON' && (n.attributes ?? []).join(' ').includes('Zap 21 sats to Ana Paula')) return n;
+      for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; }
+      return null;
+    })(root);
+    if (btn) { try { box = (await hoverCdp.send('DOM.getBoxModel', { backendNodeId: btn.backendNodeId })).model.content; } catch { box = null; } }
+    if (!box) await new Promise(r => setTimeout(r, 100));
+  }
+  assert.ok(box, 'the ⚡ button appeared');
+  await hover.mouse.click((box[0] + box[4]) / 2, (box[1] + box[5]) / 2);
+  let hoverText = null;
+  for (let i = 0; i < 50 && !(hoverText && /Confirm zap/.test(hoverText)); i++) {
+    const { root } = await hoverCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const host = (function find(n) { if ((n.attributes ?? []).includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); hoverText = out.join(' '); }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('zap button:', (hoverText ?? '').slice(0, 100));
+  assert.match(hoverText ?? '', /Confirm zap.*21 sats.*For this message/s);
+  await hover.keyboard.press('Enter');
+  await new Promise(r => setTimeout(r, 600));
+  assert.equal((await hover.evaluate(() => window.__weblnCalls)).length, 1);
+  assert.equal(await hover.$eval(lexBox, el => el.textContent), 'my draft', 'the draft is untouched');
+  await hover.close();
+
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();
   await toolbar.setViewportSize({ width: 400, height: 600 });
