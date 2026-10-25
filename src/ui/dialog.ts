@@ -5,6 +5,7 @@
  */
 import { isLightningAddress } from '../domain/lnurl.ts';
 import type { PayOutcome } from '../domain/bridge.ts';
+import type { ChatMessage } from '../domain/command.ts';
 import type { AddressAnswer, Candidate, ChatAftermath, ConfirmAnswer, ConfirmDetails, ZapUi } from '../flow.ts';
 import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import { npubEncode } from 'nostr-tools/nip19';
@@ -78,6 +79,8 @@ input[type="checkbox"] { accent-color: var(--zap); margin: 0; width: 16px; heigh
 label.post { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 0 0 12px; border-radius: 10px; background: var(--tint); cursor: pointer; }
 label.post .preview { display: block; margin-top: 4px; padding: 6px 10px; border-radius: 8px; background: var(--zap-soft); color: var(--fg); font-size: 13.5px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
 .copy-box { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.mention { color: #027eb5; font-weight: 600; }
+:host-context(body.dark) .mention, :host-context([data-theme="dark"]) .mention { color: #53bdeb; }
 .preview-inline { padding: 2px 8px; border-radius: 6px; background: var(--zap-soft); color: var(--fg); }
 .copy-box output { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--zap-soft); user-select: all; overflow-wrap: anywhere; }
 .row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
@@ -176,6 +179,13 @@ function h<K extends keyof HTMLElementTagNameMap>(
 }
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sats`;
+
+/** A message preview, with the mention shown the way WhatsApp shows one. */
+function previewParts(message: ChatMessage): Child[] {
+  const m = message.mention;
+  if (!m) return [message.text];
+  return [m.before, h('span', { class: 'mention' }, `@${m.who.label.replace(/^@/, '')}`), m.after];
+}
 
 /** A round initial, coloured from a stable key so the same person keeps the same colour. */
 function avatar(label: string, key: string): HTMLElement {
@@ -618,7 +628,7 @@ export class ZapDialog implements ZapUi, LinkUi {
           ? h('p', { class: 'warn' }, `The comment will be cut to ${recipient.commentAllowed} characters.`) : null,
         h('label', { class: 'post', for: 'wz-post' }, post,
           h('span', {}, 'Post in the chat once the payment is confirmed',
-            h('span', { class: 'preview' }, details.chatMessage))),
+            h('span', { class: 'preview' }, ...previewParts(details.chatMessage)))),
         h('p', { class: 'muted' }, 'Your Nostr WoT wallet pays this and may ask you to approve it.'),
         h('div', { class: 'actions' }, cancel, pay),
       ), 'button.primary');
@@ -654,15 +664,15 @@ export class ZapDialog implements ZapUi, LinkUi {
       if (outcome.outcome === 'paid') {
         const notes: Child[] = [];
         if (aftermath?.message === 'sent') {
-          notes.push(h('p', { class: 'muted' }, 'Posted in the chat: ', h('span', { class: 'preview-inline' }, details.chatMessage)));
+          notes.push(h('p', { class: 'muted' }, 'Posted in the chat: ', h('span', { class: 'preview-inline' }, ...previewParts(details.chatMessage))));
         } else if (aftermath?.message === 'not_sent') {
           const copy = h('button', { type: 'button', class: 'small' }, 'Copy');
           this.onClick(copy, () => {
-            void navigator.clipboard?.writeText(details.chatMessage).then(() => { copy.textContent = 'Copied'; }, () => {});
+            void navigator.clipboard?.writeText(details.chatMessage.text).then(() => { copy.textContent = 'Copied'; }, () => {});
           });
           notes.push(
             h('p', { class: 'warn' }, 'The message could not be posted in the chat. Copy it and send it yourself:'),
-            h('div', { class: 'copy-box' }, h('output', {}, details.chatMessage), copy),
+            h('div', { class: 'copy-box' }, h('output', {}, details.chatMessage.text), copy),
           );
         }
         if (aftermath && !aftermath.commandCleared) {

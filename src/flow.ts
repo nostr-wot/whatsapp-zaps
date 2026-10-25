@@ -5,7 +5,9 @@
  * particular "one invoice, one payment attempt, never retried" — can be tested
  * without WhatsApp, a wallet or the network.
  */
-import { normalizeText, parseZapCommand, zapMessage, type ChatKind, type Mention } from './domain/command.ts';
+import {
+  normalizeText, parseZapCommand, zapChatMessage, zapMessage, type ChatKind, type ChatMessage, type Mention,
+} from './domain/command.ts';
 import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore } from './domain/mappings.ts';
 import type { RecipientInfo } from './domain/messages.ts';
 import type { PayOutcome } from './domain/bridge.ts';
@@ -23,7 +25,7 @@ export interface ConfirmDetails {
   amountSats: number;
   comment: string;
   /** The message that would be posted in the chat once the payment is confirmed. */
-  chatMessage: string;
+  chatMessage: ChatMessage;
   /** Whether "post it after paying" starts ticked (the person's last choice). */
   postByDefault: boolean;
 }
@@ -75,8 +77,8 @@ export interface ZapDeps {
   resolve(address: string): Promise<RecipientInfo>;
   invoice(address: string, amountSats: number, comment: string): Promise<{ bolt11: string; amountSats: number }>;
   pay(bolt11: string): Promise<PayOutcome>;
-  /** Replace the `/zap` command in the box with `text` and send it. True once sent. */
-  postMessage(text: string): Promise<boolean>;
+  /** Replace the `/zap` command in the box with `message` and send it. True once sent. */
+  postMessage(message: ChatMessage): Promise<boolean>;
   /** Remove the `/zap` command from the box. True once the box was checked empty. */
   clearComposer(): Promise<boolean>;
   /** When this exact command was last paid in this chat (ms epoch), if recently. */
@@ -184,8 +186,13 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      // "Sent you" when paying the person this private chat is with.
-      chatMessage: zapMessage(parsed.command.recipient === null && kind !== 'group' ? null : recipient.label, amountSats, comment),
+      // "Sent you" when paying the person this private chat is with; otherwise
+      // mention who was paid (WhatsApp has mentions in groups only).
+      chatMessage: parsed.command.recipient === null && kind !== 'group'
+        ? zapChatMessage(null, amountSats, comment)
+        : kind === 'private'
+          ? { text: zapMessage(recipient.label, amountSats, comment) }
+          : zapChatMessage(recipient, amountSats, comment),
       postByDefault: deps.postByDefault,
     };
 

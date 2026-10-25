@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isZapCommand, normalizeText, parseAmount, parseZapCommand, zapMessage } from '../src/domain/command.ts';
+import { isZapCommand, messagePreview, normalizeText, parseAmount, parseZapCommand, zapChatMessage, zapMessage } from '../src/domain/command.ts';
 
 function ok(text: string, mentions: Parameters<typeof parseZapCommand>[1] = []) {
   const result = parseZapCommand(text, mentions);
@@ -145,5 +145,17 @@ describe('zapMessage', () => {
     assert.equal(zapMessage(null, 21), '⚡ Sent you 21 sats');
     assert.equal(zapMessage(null, 21, 'thanks'), '⚡ Sent you 21 sats: thanks');
     assert.doesNotMatch(zapMessage('Alice', 1), /@/, 'no fake mention');
+  });
+});
+
+describe('zapChatMessage', () => {
+  it('mentions who was paid, with a plain fallback', () => {
+    const m = zapChatMessage({ label: '\u2068@Jaqui\u2069', id: '9@c.us' }, 21, 'thanks');
+    assert.equal(m.text, '⚡ Sent 21 sats to Jaqui: thanks');
+    assert.deepEqual(m.mention, { before: '⚡ Sent 21 sats to ', who: { label: '\u2068@Jaqui\u2069', id: '9@c.us' }, after: ': thanks' });
+    assert.equal(messagePreview(m), '⚡ Sent 21 sats to @Jaqui: thanks');
+  });
+  it('has no mention when paying the other person in a private chat', () => {
+    assert.deepEqual(zapChatMessage(null, 21), { text: '⚡ Sent you 21 sats' });
   });
 });

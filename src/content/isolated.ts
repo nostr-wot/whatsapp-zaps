@@ -13,7 +13,9 @@ import { runLinkPopup } from '../linkFlow.ts';
 import { loadMappings, updateMappings } from '../services/mappingStore.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
-import { findComposer, readChatContact, readChatKey, readChatTitle, replaceComposerText, sendComposer } from '../whatsapp/dom.ts';
+import {
+  findComposer, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention, sendComposer, writeWithMention,
+} from '../whatsapp/dom.ts';
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
@@ -93,9 +95,17 @@ installInterceptor(({ text, mentions, composer }) => {
     },
     postMessage: async message => {
       const box = findComposer() ?? composer;
-      // Never send unless the box holds exactly this message: anything else
-      // (a half-replaced /zap command above all) must not go out.
-      const ready = await replaceComposerText(box, message);
+      // Never send unless the box holds exactly the intended message: anything
+      // else (a half-replaced /zap command above all) must not go out.
+      let ready = false;
+      const m = message.mention;
+      if (m) {
+        // Keep the mention the person picked in their command, so it stays a real one;
+        // otherwise make one through WhatsApp's own mention list.
+        ready = await rewriteAroundMention(box, m.who, m.before, m.after)
+          || await writeWithMention(box, m.who, m.before, m.after);
+      }
+      if (!ready) ready = await replaceComposerText(box, message.text);
       updateHighlight();
       return ready && sendComposer(box);
     },

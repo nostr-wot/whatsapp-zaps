@@ -9,7 +9,10 @@ const DETAILS: ConfirmDetails = {
   recipient: { address: 'alice@w.example', domain: 'w.example', minSats: 1, maxSats: 1000, commentAllowed: 0, description: '<img src=x onerror=alert(1)>' },
   amountSats: 1000,
   comment: 'lunch',
-  chatMessage: '⚡ Sent 1,000 sats to <b>Alice</b>: lunch',
+  chatMessage: {
+    text: '⚡ Sent 1,000 sats to <b>Alice</b>: lunch',
+    mention: { before: '⚡ Sent 1,000 sats to ', who: { label: '<b>Alice</b>', id: '1@c.us' }, after: ': lunch' },
+  },
   postByDefault: true,
 };
 
@@ -83,7 +86,8 @@ describe('ZapDialog', () => {
     const box = root()!.querySelector('#wz-post') as HTMLInputElement;
     assert.equal(box.checked, false);
     assert.match(root()!.textContent!, /Post in the chat once the payment is confirmed/);
-    assert.match(root()!.querySelector('.preview')!.textContent!, /⚡ Sent 1,000 sats to <b>Alice<\/b>: lunch/);
+    assert.match(root()!.querySelector('.preview')!.textContent!, /⚡ Sent 1,000 sats to @<b>Alice<\/b>: lunch/);
+    assert.equal(root()!.querySelector('.preview .mention')!.textContent, '@<b>Alice</b>', 'the mention is shown as one');
     box.checked = true;
     button(/^Pay/).click();
     assert.deepEqual(await answer, { post: true });
@@ -100,7 +104,7 @@ describe('ZapDialog', () => {
     void failed.dialog.showResult({ outcome: 'paid', preimage: 'p' }, DETAILS, { commandCleared: false, message: 'not_sent' });
     const text = failed.root()!.textContent!;
     assert.match(text, /could not be posted/);
-    assert.equal(failed.root()!.querySelector('.copy-box output')!.textContent, DETAILS.chatMessage);
+    assert.equal(failed.root()!.querySelector('.copy-box output')!.textContent, DETAILS.chatMessage.text);
     assert.match(text, /still in the message box/);
   });
 

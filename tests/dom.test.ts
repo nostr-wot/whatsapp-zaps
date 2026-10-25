@@ -83,3 +83,30 @@ describe('readChatContact', () => {
     assert.deepEqual(readChatContact(), { kind: 'contact', id: null, name: 'Friends & Family' });
   });
 });
+
+describe('mentions in the message box and the mention list', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+
+  it('finds the mention element by contact id, else by name', async () => {
+    const { findMentionElement } = await import('../src/whatsapp/dom.ts');
+    const composer = findComposer()!;
+    assert.equal(findMentionElement(composer, { label: 'Someone else', id: '5491100000000@c.us' })?.textContent, '⁨@Ana Paula⁩');
+    assert.ok(findMentionElement(composer, { label: 'Ana Paula', id: null }));
+    assert.equal(findMentionElement(composer, { label: 'Bob', id: null }), null);
+  });
+
+  it('picks a list entry only when exactly one person fits', async () => {
+    const { findMentionOption } = await import('../src/whatsapp/dom.ts');
+    const list = document.createElement('div');
+    list.setAttribute('role', 'listbox');
+    list.innerHTML = ['Bob', 'Bea', 'Bea Smith', 'Jaqui'].map(n => `<div role="option">${n}</div>`).join('')
+      + '<div role="option" data-jid="77@c.us">Mystery</div>';
+    document.querySelector('#main')!.append(list);
+    assert.equal(findMentionOption({ label: 'Jaqui', id: null })?.textContent, 'Jaqui');
+    assert.equal(findMentionOption({ label: 'bob', id: null })?.textContent, 'Bob');
+    assert.equal(findMentionOption({ label: 'Bea', id: null })?.textContent, 'Bea', 'an exact name wins');
+    assert.equal(findMentionOption({ label: 'Be', id: null }), null, 'two people start with "Be": no guess');
+    assert.equal(findMentionOption({ label: 'Carl', id: null }), null);
+    assert.equal(findMentionOption({ label: 'Whoever', id: '77@c.us' })?.textContent, 'Mystery', 'the contact id wins');
+  });
+});

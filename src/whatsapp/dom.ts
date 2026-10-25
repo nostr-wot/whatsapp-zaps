@@ -27,6 +27,15 @@ export const SELECTORS = {
   mention: [
     '[data-app-text-template*="@{{"]',
     '[data-jid]',
+    '[data-mention]',
+    '.mention',
+  ],
+  /** Entries of WhatsApp's mention list, shown after typing `@` in a group. */
+  mentionOption: [
+    '#main [role="listbox"] [role="option"]',
+    '[role="listbox"] [role="option"]',
+    '#main [data-testid*="mention"] [role="button"]',
+    '#main [role="list"] [role="listitem"]',
   ],
   /** Chat title in the conversation header. */
   chatTitle: [
@@ -205,6 +214,156 @@ export async function replaceComposerText(composer: HTMLElement, text: string, d
     if (composerHolds(composer, text)) return true;
   }
   return false;
+}
+
+// ── Real mentions ──
+
+/** The mention element for `who` in the box: by contact id when known, else by name. */
+export function findMentionElement(composer: HTMLElement, who: Mention): HTMLElement | null {
+  const name = normalizeText(who.label).replace(/^@/, '').toLowerCase();
+  let byName: HTMLElement | null = null;
+  for (const selector of SELECTORS.mention) {
+    for (const el of composer.querySelectorAll<HTMLElement>(selector)) {
+      if (who.id && mentionId(el) === who.id) return el;
+      if (!byName && normalizeText(el.textContent ?? '').replace(/^@/, '').toLowerCase() === name) byName = el;
+    }
+  }
+  return byName;
+}
+
+/** Spacing differs between editors around a mention; compare without it. */
+const compact = (text: string) => normalizeText(text).replace(/\s+/g, '');
+
+/** Select `range` and wait for the editor to pick the selection up. */
+async function selectRange(range: Range, composer: HTMLElement, doc: Document): Promise<void> {
+  composer.focus();
+  const selection = doc.getSelection();
+  if (!selection) return;
+  const synced = new Promise<void>(resolve => {
+    const timer = setTimeout(resolve, 150);
+    doc.addEventListener('selectionchange', () => { clearTimeout(timer); setTimeout(resolve, 0); }, { once: true });
+  });
+  selection.removeAllRanges();
+  selection.addRange(range);
+  await synced;
+}
+
+function firstBlock(composer: HTMLElement): Node {
+  return composer.querySelector('p') ?? composer;
+}
+
+function lastBlock(composer: HTMLElement): Node {
+  const blocks = composer.querySelectorAll('p');
+  return blocks[blocks.length - 1] ?? composer;
+}
+
+/** Type `text` over the current selection, or delete it when `text` is empty. */
+async function typeOverSelection(composer: HTMLElement, text: string, doc: Document): Promise<void> {
+  if (text) {
+    doc.execCommand('insertText', false, text);
+  } else {
+    composer.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true }));
+  }
+  await wait(30);
+}
+
+/**
+ * Turn the box into `before` + the existing mention of `who` + `after`,
+ * leaving WhatsApp's own mention untouched so it stays a real mention.
+ * Resolves true only when the result was checked.
+ */
+export async function rewriteAroundMention(
+  composer: HTMLElement, who: Mention, before: string, after: string, doc: Document = document,
+): Promise<boolean> {
+  const mention = findMentionElement(composer, who);
+  if (!mention) return false;
+  const label = mention.textContent ?? '';
+
+  // After the mention first, so the positions before it do not move.
+  const tail = doc.createRange();
+  tail.setStartAfter(mention);
+  tail.setEnd(lastBlock(composer), lastBlock(composer).childNodes.length);
+  if (!tail.collapsed || after) {
+    await selectRange(tail, composer, doc);
+    await typeOverSelection(composer, after, doc);
+  }
+
+  const current = findMentionElement(composer, who);
+  if (!current) return false;
+  const head = doc.createRange();
+  head.setStart(firstBlock(composer), 0);
+  head.setEndBefore(current);
+  await selectRange(head, composer, doc);
+  await typeOverSelection(composer, before, doc);
+
+  return !!findMentionElement(composer, who) && compact(readComposerText(composer)) === compact(before + label + after);
+}
+
+/** The entry in WhatsApp's open mention list for `who`, if exactly one fits. */
+export function findMentionOption(who: Mention, doc: Document = document): HTMLElement | null {
+  let options: HTMLElement[] = [];
+  for (const selector of SELECTORS.mentionOption) {
+    options = [...doc.querySelectorAll<HTMLElement>(selector)];
+    if (options.length) break;
+  }
+  if (who.id) {
+    const byId = options.find(o => [o, ...o.querySelectorAll('[data-jid]')].some(el => el.getAttribute('data-jid') === who.id));
+    if (byId) return byId;
+  }
+  const name = normalizeName(who.label);
+  const exact = options.filter(o => normalizeName(o.textContent ?? '') === name);
+  if (exact.length === 1) return exact[0];
+  const starts = options.filter(o => normalizeName(o.textContent ?? '').startsWith(name));
+  // Never guess between people: no match or several matches means no mention.
+  return exact.length === 0 && starts.length === 1 ? starts[0] : null;
+}
+
+/**
+ * Write `before`, then mention `who` the way a person does — type `@` and the
+ * start of the name, pick them from WhatsApp's list — then write `after`.
+ * Resolves true only when the box was checked to hold a real mention.
+ */
+export async function writeWithMention(
+  composer: HTMLElement, who: Mention, before: string, after: string, doc: Document = document,
+): Promise<boolean> {
+  if (!(await replaceComposerText(composer, before.trimEnd(), doc))) return false;
+  const end = () => {
+    const range = doc.createRange();
+    range.selectNodeContents(lastBlock(composer));
+    range.collapse(false);
+    return range;
+  };
+  await selectRange(end(), composer, doc);
+  const query = normalizeText(who.label).replace(/^@/, '').split(' ')[0];
+  doc.execCommand('insertText', false, ` @${query}`);
+
+  let option: HTMLElement | null = null;
+  for (let i = 0; i < 30 && !option; i++) {
+    await wait(50);
+    option = findMentionOption(who, doc);
+  }
+  if (!option) return false;
+  for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+    option.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: doc.defaultView }));
+  }
+  for (let i = 0; i < 10 && !findMentionElement(composer, who); i++) await wait(50);
+  const mention = findMentionElement(composer, who);
+  if (!mention) return false;
+
+  if (after) {
+    await selectRange(end(), composer, doc);
+    // WhatsApp adds a space after a picked mention; ": thanks" should sit right after the name.
+    const text = readComposerText(composer);
+    if (/\s$/.test(text) && /^[:,.]/.test(after)) {
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', keyCode: 8, bubbles: true, cancelable: true }));
+      await wait(30);
+      await selectRange(end(), composer, doc);
+    }
+    doc.execCommand('insertText', false, after);
+    await wait(30);
+  }
+  const label = findMentionElement(composer, who)?.textContent ?? '';
+  return !!label && compact(readComposerText(composer)) === compact(before + label + after);
 }
 
 /**

@@ -386,6 +386,69 @@ try {
   assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2, 'no second payment');
   assert.deepEqual(await sent(), ['⚡ Sent you 21 sats: thanks']);
 
+  // 12. Groups: the posted message carries a real WhatsApp mention.
+  await worker.evaluate(async () => {
+    const { zapMappings } = await chrome.storage.local.get('zapMappings');
+    zapMappings.global['id:5491177@c.us'] = { address: 'ana@wallet.example', displayName: 'Jaqui', updatedAt: 1 };
+    zapMappings.global['name:bob'] = { address: 'ana@wallet.example', displayName: 'Bob', updatedAt: 1 };
+    zapMappings.global['name:carl'] = { address: 'ana@wallet.example', displayName: 'Carl', updatedAt: 1 };
+    await chrome.storage.local.set({ zapMappings });
+  });
+  const members = 'Jaqui:5491177@c.us,Bob:5491188@c.us,Bea:5491199@c.us';
+  async function groupZap(query) {
+    const tab = await context.newPage();
+    await tab.addInitScript(() => {
+      window.webln = { enabled: true, async enable() {}, async sendPayment() { return { preimage: 'ef'.repeat(32) }; } };
+    });
+    await tab.goto(`https://web.whatsapp.com/?lexical=1&members=${encodeURIComponent(members)}&${query}`);
+    await tab.waitForFunction(() => window.__lexicalReady);
+    const tabCdp = await context.newCDPSession(tab);
+    const until = async pattern => {
+      const deadline = Date.now() + 10_000;
+      let last = null;
+      while (Date.now() < deadline) {
+        const { root } = await tabCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+        const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+        const out = [];
+        if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+        last = host ? out.join(' ') : null;
+        if (last !== null && pattern.test(last)) return last;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      throw new Error(`group zap dialog never matched ${pattern}; last: ${last}`);
+    };
+    await tab.click(lexBox);
+    await tab.keyboard.press('End');
+    await tab.keyboard.press('Enter');
+    const confirmText = await until(/Confirm zap/);
+    await tab.keyboard.press('Enter');
+    const resultText = await until(/Zap sent/);
+    const messages = await tab.$$eval('.sent-message', els => els.map(e => e.textContent));
+    const left = await tab.$eval(lexBox, el => el.textContent.trim());
+    if (shotDir) await tab.screenshot({ path: join(shotDir, `11-group-${messages.length}-${Date.now() % 1000}.png`) });
+    await tab.close();
+    return { confirmText, resultText, messages, left };
+  }
+
+  // A. The person picked Jaqui from WhatsApp's list when typing the command: that mention is kept.
+  const kept = await groupZap(`mention=${encodeURIComponent('Jaqui:5491177@c.us')}&text=${encodeURIComponent('/zap @Jaqui 21 thanks')}`);
+  console.log('kept mention:', kept.messages);
+  assert.match(kept.confirmText, /⚡ Sent 21 sats to\s+@Jaqui\s*: thanks/);
+  assert.deepEqual(kept.messages, ['⚡ Sent 21 sats to @Jaqui{{5491177@c.us}}: thanks'], 'real mention, with the contact id');
+  assert.equal(kept.left, '');
+
+  // B. Typed "@Bob" without picking: the extension opens WhatsApp's list and picks Bob.
+  const picked = await groupZap(`text=${encodeURIComponent('/zap @Bob 5')}`);
+  console.log('picked mention:', picked.messages);
+  assert.deepEqual(picked.messages, ['⚡ Sent 5 sats to @Bob{{5491188@c.us}}']);
+  assert.equal(picked.left, '');
+
+  // C. No member matches: plain text, never a guessed mention.
+  const plain = await groupZap(`text=${encodeURIComponent('/zap @Carl 5')}`);
+  console.log('plain:', plain.messages);
+  assert.deepEqual(plain.messages, ['⚡ Sent 5 sats to Carl']);
+  assert.equal(plain.left, '');
+
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();
   await toolbar.setViewportSize({ width: 400, height: 600 });

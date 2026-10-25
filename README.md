@@ -20,7 +20,7 @@ sent.
 ### After paying
 
 The confirm screen has **Post in the chat once the payment is confirmed**,
-ticked by default (your last choice is remembered). The message, `⚡ Sent you 1,000 sats` in a private chat or `⚡ Sent 1,000 sats to Ana` in a group
+ticked by default (your last choice is remembered). The message, `⚡ Sent you 1,000 sats` in a private chat or `⚡ Sent 1,000 sats to @Ana` in a group
 (plus your comment, if you gave one), is posted only after the wallet has confirmed the payment with
 its proof. If the payment fails, is declined or its outcome is unknown, nothing
 is posted.
@@ -29,6 +29,18 @@ The message replaces your `/zap` command in the box and is sent. If that fails,
 the dialog shows the message for you to copy, and the command is still removed
 from the box. If it cannot be removed, the dialog says so in red, because
 pressing Enter would start another zap.
+
+In a group, `@Ana` in that message is a **real WhatsApp mention**, so Ana is
+notified:
+
+- If you picked Ana from WhatsApp's list while typing `/zap @Ana …`, the
+  mention you made is kept: only the text around it is rewritten.
+- If you typed her name without picking, the extension opens WhatsApp's own
+  mention list (it types `@Ana`) and picks her. It only does that when exactly
+  one person fits; otherwise the name is posted as plain text, never a guess.
+- The message is only sent once the box is checked to hold it with the
+  mention in place. Private chats have no mentions in WhatsApp, so there it is
+  just `⚡ Sent you …`.
 
 Typing the same `/zap` command again in the same chat within 30 minutes shows
 **Already paid**. Its default button, "Don't pay again", removes the command
@@ -189,11 +201,13 @@ relying on this:
 - the send button,
 - mention chips (`data-app-text-template`),
 - the header ⋮ button and its dropdown items (`data-animate-dropdown-item`),
+- WhatsApp's mention list after typing `@` (`[role="listbox"] [role="option"]` is assumed),
 - `body.dark`, which is how WhatsApp marks its dark theme (the dialogs follow it).
 
 WhatsApp's message box is a Lexical editor. The smoke test runs one with real
-Lexical (`tests/fixtures/lexical-composer.ts`), because edits that work on a
-plain editable box can silently do nothing in Lexical.
+Lexical (`tests/fixtures/lexical-composer.ts`), with mention nodes and a member
+list, because edits that work on a plain editable box can silently do nothing
+in Lexical.
 - the `data-id` message rows used for the chat id.
 
 If they've drifted, replace the fixture with a real capture.

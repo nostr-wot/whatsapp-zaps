@@ -163,6 +163,35 @@ export function parseZapCommand(text: string, mentions: Mention[] = [], chat: Ch
 }
 
 /**
+ * A chat message that may carry a real WhatsApp mention: `before`, then the
+ * mention of `who`, then `after`. `text` is the plain fallback, used when the
+ * mention cannot be made.
+ */
+export interface ChatMessage {
+  text: string;
+  mention?: { before: string; who: Mention; after: string };
+}
+
+/** What the message will look like, for previews: the mention as `@Name`. */
+export function messagePreview(message: ChatMessage): string {
+  const m = message.mention;
+  return m ? `${m.before}@${normalizeText(m.who.label).replace(/^@/, '')}${m.after}` : message.text;
+}
+
+/**
+ * The message after a confirmed zap. In a group, naming who was paid mentions
+ * them for real; in a private chat it is just "Sent you …".
+ */
+export function zapChatMessage(who: Mention | null, amountSats: number, comment = ''): ChatMessage {
+  const text = zapMessage(who ? normalizeText(who.label).replace(/^@/, '') : null, amountSats, comment);
+  if (!who) return { text };
+  return {
+    text,
+    mention: { before: `⚡ Sent ${amountSats.toLocaleString('en-US')} sats to `, who, after: comment ? `: ${comment}` : '' },
+  };
+}
+
+/**
  * The chat message posted after a confirmed zap.
  *
  * It is plain text: a typed "@name" is not a WhatsApp mention, it just shows
