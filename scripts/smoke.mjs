@@ -487,6 +487,41 @@ try {
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.equal(manifest.icons['128'], 'icons/icon-128.png');
 
+  // 15. The extension is turned off while WhatsApp stays open: the copy left in the
+  //     tab is cut off from the extension. It must not crash ("reading 'local'") nor
+  //     let /zap be sent as a message; it asks for a reload.
+  const orphanTab = await context.newPage();
+  await orphanTab.goto('https://web.whatsapp.com/');
+  await orphanTab.waitForSelector('footer [contenteditable="true"]');
+  await new Promise(r => setTimeout(r, 300));
+  const extensionsPage = await context.newPage();
+  await extensionsPage.goto('chrome://extensions');
+  const extensionId = new URL(worker.url()).host;
+  await extensionsPage.evaluate(id => new Promise(resolve => chrome.management.setEnabled(id, false, resolve)), extensionId);
+  await extensionsPage.close();
+  await orphanTab.bringToFront();
+  const pageErrors = [];
+  orphanTab.on('pageerror', e => pageErrors.push(e.message));
+  await orphanTab.evaluate(() => {
+    const box = document.querySelector('footer [contenteditable="true"]');
+    box.innerHTML = '<p><span>/zap 21</span></p>';
+  });
+  await orphanTab.focus('footer [contenteditable="true"]');
+  await orphanTab.keyboard.press('End');
+  await orphanTab.keyboard.press('Enter');
+  const orphanCdp = await context.newCDPSession(orphanTab);
+  let orphanText = null;
+  for (let i = 0; i < 50 && !orphanText; i++) {
+    const { root } = await orphanCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); orphanText = out.join(' '); }
+    else await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('orphaned:', orphanText);
+  assert.match(orphanText ?? '', /Reload this page \(F5\)/);
+  assert.equal(await orphanTab.$eval('footer [contenteditable="true"]', el => el.textContent), '/zap 21', 'the command was not sent');
+  assert.deepEqual(pageErrors, []);
+
   console.log('\nSmoke test passed.');
 } finally {
   await context?.close();

@@ -85,6 +85,11 @@ npm run build        # → dist/
 Load `dist/` as an unpacked extension (chrome://extensions → Developer mode →
 Load unpacked) next to Nostr WoT, then open https://web.whatsapp.com.
 
+**After installing, updating or removing the extension, reload the WhatsApp
+tab.** Chrome cuts the old copy in an open tab off from the extension; that
+copy then only says "Reload this page" instead of zapping, and a new version
+only loads after a reload.
+
 ## Contacts and Lightning Addresses
 
 The first time you zap someone, the dialog asks for their Lightning Address.

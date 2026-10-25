@@ -10,7 +10,8 @@ import type { ResolvedInvoice } from '../domain/lnurl.ts';
 import type { ProfileResult } from '../domain/nostr.ts';
 import { runZap } from '../flow.ts';
 import { runLinkPopup } from '../linkFlow.ts';
-import { loadMappings, updateMappings } from '../services/mappingStore.ts';
+import { loadMappings as loadStoredMappings, updateMappings as updateStoredMappings } from '../services/mappingStore.ts';
+import type { MappingStore } from '../domain/mappings.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
@@ -18,11 +19,39 @@ import {
   sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
 import { recordDiagnostic } from '../services/diagnostics.ts';
+import { RELOAD_MESSAGE, claimPage, isExtensionAlive, lifecycleState } from './lifecycle.ts';
+
+/** Storage, failing with the reload message instead of a TypeError once cut off. */
+function loadMappings(): Promise<MappingStore> {
+  return isExtensionAlive() ? loadStoredMappings() : Promise.reject(new Error(RELOAD_MESSAGE));
+}
+function updateMappings(change: (store: MappingStore) => MappingStore): Promise<MappingStore> {
+  return isExtensionAlive() ? updateStoredMappings(change) : Promise.reject(new Error(RELOAD_MESSAGE));
+}
+
+// See lifecycle.ts: this copy may outlive the extension that loaded it.
+const INSTANCE_ID = crypto.randomUUID();
+claimPage(document, INSTANCE_ID);
+const uninstallers: Array<() => void> = [];
+const state = () => lifecycleState(document, INSTANCE_ID, isExtensionAlive());
+/** Handle events while this copy is current; a replaced copy removes itself. */
+function current(): boolean {
+  if (state() !== 'replaced') return true;
+  for (const uninstall of uninstallers.splice(0)) uninstall();
+  return false;
+}
+/** A copy cut off from the extension cannot zap: say so instead of crashing. */
+function orphaned(): boolean {
+  if (state() !== 'orphaned') return false;
+  void dialog.showError(RELOAD_MESSAGE).then(() => dialog.close());
+  return true;
+}
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
+  if (!isExtensionAlive()) throw new Error(RELOAD_MESSAGE);
   const response = await chrome.runtime.sendMessage(request) as BackgroundResponse<T> | undefined;
   if (!response) throw new Error('The extension background did not answer. Reload the page and try again.');
   if (!response.ok) throw new Error(response.error);
@@ -53,7 +82,7 @@ function pay(bolt11: string): Promise<PayOutcome> {
 // cannot be paid twice without a warning.
 let recentZaps: Record<string, number> = {};
 let postByDefault = true;
-void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PREFERENCE_KEY]).then(stored => {
+if (isExtensionAlive()) void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PREFERENCE_KEY]).then(stored => {
   const now = Date.now();
   const saved = stored[RECENT_ZAPS_KEY];
   if (saved && typeof saved === 'object') {
@@ -70,7 +99,8 @@ const dialog = new ZapDialog({
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
 });
 
-installInterceptor(({ text, mentions, composer }) => {
+uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
+  if (orphaned()) return;
   busy = true;
   const contact = readChatContact();
   const chat = {
@@ -135,18 +165,19 @@ installInterceptor(({ text, mentions, composer }) => {
       const now = Date.now();
       recentZaps = Object.fromEntries(Object.entries(recentZaps).filter(([, at]) => now - at < REPEAT_WINDOW_MS));
       recentZaps[key] = now;
-      void chrome.storage.local.set({ [RECENT_ZAPS_KEY]: recentZaps });
+      if (isExtensionAlive()) void chrome.storage.local.set({ [RECENT_ZAPS_KEY]: recentZaps });
     },
     postByDefault,
     setPostPreference: post => {
       postByDefault = post;
-      void chrome.storage.local.set({ [POST_PREFERENCE_KEY]: post });
+      if (isExtensionAlive()) void chrome.storage.local.set({ [POST_PREFERENCE_KEY]: post });
     },
   }).finally(() => { busy = false; });
-}, () => busy);
+}, () => busy, document, current));
 
 // "⚡ Nostr profile" in the chat header's ⋮ menu.
-installMenuItem(() => {
+uninstallers.push(installMenuItem(() => {
+  if (orphaned()) return;
   const contact = readChatContact();
   if (busy || !contact) return;
   busy = true;
@@ -161,6 +192,6 @@ installMenuItem(() => {
     },
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
   }).finally(() => { busy = false; });
-});
+}, document, current));
 
-installCommandHighlight();
+uninstallers.push(installCommandHighlight());

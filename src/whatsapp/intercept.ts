@@ -23,8 +23,11 @@ export function installInterceptor(
   onCommand: (command: InterceptedCommand) => void,
   isBusy: () => boolean = () => false,
   doc: Document = document,
+  /** False makes this interceptor let the event through untouched (another copy handles it). */
+  shouldHandle: () => boolean = () => true,
 ): () => void {
   function intercept(event: Event): boolean {
+    if (!shouldHandle()) return false;
     const composer = findComposer(doc);
     if (!composer) return false;
     const text = readComposerText(composer);
@@ -43,7 +46,7 @@ export function installInterceptor(
   }
 
   function onPointer(event: Event) {
-    if (!isSendButton(event.target, doc)) return;
+    if (!isSendButton(event.target, doc) || !shouldHandle()) return;
     // Only the click starts a zap; mousedown/pointerdown are swallowed so
     // WhatsApp cannot send on press.
     if (event.type === 'click') intercept(event);

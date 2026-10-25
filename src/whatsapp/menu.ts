@@ -54,7 +54,12 @@ function closeMenu(doc: Document) {
  * Watch for the header ⋮ menu opening and add our item to it.
  * Returns an uninstall function.
  */
-export function installMenuItem(onOpen: () => void, doc: Document = document): () => void {
+export function installMenuItem(
+  onOpen: () => void,
+  doc: Document = document,
+  /** False makes this copy leave the menu alone (another copy adds the item). */
+  shouldHandle: () => boolean = () => true,
+): () => void {
   let observer: MutationObserver | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -70,7 +75,7 @@ export function installMenuItem(onOpen: () => void, doc: Document = document): (
   };
 
   const onClick = (event: Event) => {
-    if (!isHeaderMenuButton(event.target, doc)) return;
+    if (!isHeaderMenuButton(event.target, doc) || !shouldHandle()) return;
     stopWatching();
     // The dropdown renders after this click; it may already be there next tick.
     if (addItemToOpenMenu(onSelect, doc)) return;

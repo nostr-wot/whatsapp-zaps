@@ -17,6 +17,7 @@ export interface Diagnostic {
 
 export async function recordDiagnostic(what: string, details: Record<string, string>): Promise<void> {
   try {
+    if (!globalThis.chrome?.storage?.local) return;
     const stored = await chrome.storage.local.get(DIAGNOSTICS_KEY);
     const list = Array.isArray(stored[DIAGNOSTICS_KEY]) ? stored[DIAGNOSTICS_KEY] as Diagnostic[] : [];
     const entry: Diagnostic = { at: Date.now(), what, version: chrome.runtime.getManifest().version, details };
