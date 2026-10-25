@@ -36,6 +36,19 @@ export const SELECTORS = {
   ],
   /** Message rows; their data-id embeds the chat id. */
   messageRow: ['#main [data-id]'],
+  /** The ⋮ menu button in the open chat's header. */
+  headerMenuButton: [
+    '#main header [data-icon="menu"]',
+    '#main header [data-icon="more-refreshed"]',
+    '#main header [data-icon="kebab-menu"]',
+    '#main header [aria-label="Menu"]',
+  ],
+  /** Items of an open dropdown menu; the first match is cloned for our item's look. */
+  dropdownItem: [
+    'li[data-animate-dropdown-item]',
+    '[role="application"] li[role="button"]',
+    '[role="menu"] [role="menuitem"]',
+  ],
 } as const;
 
 function query<T extends Element = HTMLElement>(root: ParentNode, selectors: readonly string[]): T | null {
@@ -138,4 +151,48 @@ export function setComposerText(composer: HTMLElement, text: string, doc: Docume
   }
   if (text) doc.execCommand('insertText', false, text);
   else doc.execCommand('delete', false);
+}
+
+/** The header ⋮ button (its clickable ancestor), or null. */
+export function findHeaderMenuButton(doc: Document = document): HTMLElement | null {
+  const el = query<HTMLElement>(doc, SELECTORS.headerMenuButton);
+  return (el?.closest('button,[role="button"]') as HTMLElement | null) ?? el;
+}
+
+export function isHeaderMenuButton(target: EventTarget | null, doc: Document = document): boolean {
+  const button = findHeaderMenuButton(doc);
+  return !!button && target instanceof Node && button.contains(target);
+}
+
+/**
+ * The dropdown that is open now: the list to append to, and one entry to copy.
+ * WhatsApp may wrap each item in its own element, so the entry is the item's
+ * outermost wrapper that holds nothing else, and the list is what holds those.
+ */
+export function findOpenMenu(doc: Document = document): { list: HTMLElement; template: HTMLElement } | null {
+  let entry = query<HTMLElement>(doc, SELECTORS.dropdownItem);
+  if (!entry) return null;
+  while (entry.parentElement && entry.parentElement !== doc.body && entry.parentElement.children.length === 1) {
+    entry = entry.parentElement;
+  }
+  const list = entry.parentElement;
+  return list && list !== doc.body ? { list, template: entry } : null;
+}
+
+/** Who the open chat is with. */
+export type ChatContact =
+  | { kind: 'contact'; id: string | null; name: string }
+  | { kind: 'group'; chatKey: string; title: string };
+
+/**
+ * A group when the chat id says so (`…@g.us`), otherwise one contact. In an
+ * empty chat there is no id to read, and the chat is taken for a contact
+ * known by its title.
+ */
+export function readChatContact(doc: Document = document): ChatContact | null {
+  const title = readChatTitle(doc);
+  const id = readChatId(doc);
+  if (id?.endsWith('@g.us')) return { kind: 'group', chatKey: `jid:${id}`, title: title ?? 'this group' };
+  if (!title && !id) return null;
+  return { kind: 'contact', id, name: title ?? id! };
 }

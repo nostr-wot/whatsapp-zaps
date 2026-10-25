@@ -49,14 +49,33 @@ When you pick someone from WhatsApp's mention list, the contact is stored by
 WhatsApp contact id. Typed names are stored by display name. If two saved
 contacts share a name, the dialog asks which one you meant.
 
+### From a chat's ⋮ menu
+
+Open a chat, click the **⋮** menu in its header, and choose **⚡ Nostr profile**.
+
+- **One-to-one chat:** the popup shows which Nostr profile or Lightning
+  Address this contact is linked to, with the profile's name, verified NIP-05
+  and npub. You can search Nostr to link a profile, type a Lightning Address
+  instead, replace the link, or unlink.
+- **Group:** it lists the members linked in that group. To link another, type
+  their name as it appears in the group and search for them.
+
+The search box starts with the contact's name, but nothing is searched until
+you press Search. A WhatsApp name only reaches a relay if you choose to send it.
+
+### Contacts page
+
 Click the extension's toolbar button to open the **contacts page**. It has:
 
 - the same Nostr search, where each result can be saved under a WhatsApp name,
 - the saved mappings, which you can delete,
 - JSON import and export.
 
-Mappings are stored only in `chrome.storage.local`. When an address came from
-a Nostr profile, that profile's pubkey is saved with it.
+Everything about your contacts stays in this browser, in
+`chrome.storage.local`: which WhatsApp contact is which Nostr profile, and
+which Lightning Address. When an address came from a Nostr profile, the link
+also stores that profile's pubkey, its name and its NIP-05 (only if verified),
+so the popup can show them without fetching anything.
 
 ### Telling people apart on Nostr
 
@@ -89,6 +108,7 @@ safeguards as LNURL: no redirects, a timeout and a size cap.
 | `src/content/main.ts` | page (MAIN) | Calls `window.webln.enable()` / `sendPayment()` |
 | `src/background.ts` | service worker | LNURL-pay (pay params, invoice) and Nostr profile search |
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
+| `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu |
 
 ### Who authorizes the payment
 
@@ -130,6 +150,7 @@ relying on this:
 - the composer,
 - the send button,
 - mention chips (`data-app-text-template`),
+- the header ⋮ button and its dropdown items (`data-animate-dropdown-item`),
 - the `data-id` message rows used for the chat id.
 
 If they've drifted, replace the fixture with a real capture.

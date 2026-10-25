@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installDom } from './helpers/dom.ts';
 import {
-  findComposer, findSendButton, isSendButton, mentionId, readChatId, readChatKey, readChatTitle, readComposerText, readMentions, setComposerText,
+  findComposer, findSendButton, isSendButton, mentionId, readChatContact, readChatId, readChatKey, readChatTitle, readComposerText, readMentions, setComposerText,
 } from '../src/whatsapp/dom.ts';
 import { parseZapCommand } from '../src/domain/command.ts';
 
@@ -63,5 +63,23 @@ describe('WhatsApp DOM adapter', () => {
     setComposerText(composer, '⚡ Zapped @Ana 1 sats');
     assert.deepEqual(calls, [['delete', undefined], ['insertText', '⚡ Zapped @Ana 1 sats']]);
     assert.equal(document.getSelection()?.anchorNode, composer);
+  });
+});
+
+describe('readChatContact', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+
+  it('reads a group from its chat id', () => {
+    assert.deepEqual(readChatContact(), { kind: 'group', chatKey: 'jid:120363000000000000@g.us', title: 'Friends & Family' });
+  });
+
+  it('reads a one-to-one contact with its id', () => {
+    for (const row of document.querySelectorAll('[data-id]')) row.setAttribute('data-id', 'false_5491100000000@c.us_3EB0AB');
+    assert.deepEqual(readChatContact(), { kind: 'contact', id: '5491100000000@c.us', name: 'Friends & Family' });
+  });
+
+  it('falls back to a contact known by title in an empty chat', () => {
+    for (const row of document.querySelectorAll('[data-id]')) row.remove();
+    assert.deepEqual(readChatContact(), { kind: 'contact', id: null, name: 'Friends & Family' });
   });
 });

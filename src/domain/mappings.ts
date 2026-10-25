@@ -21,7 +21,18 @@ export interface Mapping {
   updatedAt: number;
   /** Hex pubkey of the Nostr profile the address was taken from, if any. */
   pubkey?: string;
+  /** What that profile showed when it was linked, for display only. */
+  nostr?: NostrSnapshot;
 }
+
+/** A local copy of the linked profile's name and NIP-05, so nothing is fetched to show it. */
+export interface NostrSnapshot {
+  name: string | null;
+  /** Only stored when it was verified at link time. */
+  nip05: string | null;
+}
+
+const HEX_PUBKEY = /^[0-9a-f]{64}$/;
 
 export interface MappingStore {
   global: Record<string, Mapping>;
@@ -105,13 +116,15 @@ export function saveMapping(
   address: string,
   now: number = Date.now(),
   pubkey?: string,
+  nostr?: NostrSnapshot,
 ): MappingStore {
   const parsed = parseLightningAddress(address);
   if (!parsed) throw new Error('Not a valid Lightning Address');
   const mapping: Mapping = { address: `${parsed.name}@${parsed.domain}`, displayName: displayName.trim(), updatedAt: now };
   if (pubkey) {
-    if (!/^[0-9a-f]{64}$/.test(pubkey)) throw new Error('Invalid Nostr pubkey');
+    if (!HEX_PUBKEY.test(pubkey)) throw new Error('Invalid Nostr pubkey');
     mapping.pubkey = pubkey;
+    if (nostr) mapping.nostr = { name: nostr.name?.slice(0, 80) || null, nip05: nostr.nip05?.slice(0, 200) || null };
   }
   if (scope.kind === 'global') {
     return { ...store, global: { ...store.global, [contactKey]: mapping } };
@@ -142,7 +155,14 @@ function isMapping(value: unknown): value is Mapping {
     && parseLightningAddress(m.address) !== null
     && typeof m.displayName === 'string'
     && typeof m.updatedAt === 'number'
-    && (m.pubkey === undefined || (typeof m.pubkey === 'string' && /^[0-9a-f]{64}$/.test(m.pubkey)));
+    && (m.pubkey === undefined || (typeof m.pubkey === 'string' && HEX_PUBKEY.test(m.pubkey)))
+    && (m.nostr === undefined || isSnapshot(m.nostr));
+}
+
+function isSnapshot(value: unknown): value is NostrSnapshot {
+  if (typeof value !== 'object' || value === null) return false;
+  const n = value as Record<string, unknown>;
+  return (n.name === null || typeof n.name === 'string') && (n.nip05 === null || typeof n.nip05 === 'string');
 }
 
 function sanitizeBucket(value: unknown): Record<string, Mapping> {
@@ -169,6 +189,12 @@ export function sanitizeStore(value: unknown): MappingStore {
     }
   }
   return { global: sanitizeBucket(raw.global), groups };
+}
+
+/** The mapping saved for exactly this contact key in this scope, if any. */
+export function findMapping(store: MappingStore, scope: MappingScope, contactKey: string): Mapping | null {
+  const bucket = scope.kind === 'global' ? store.global : store.groups[scope.chatKey];
+  return bucket?.[contactKey] ?? null;
 }
 
 /** Merge an import into the store; imported entries win on conflict. */

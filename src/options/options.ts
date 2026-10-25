@@ -28,19 +28,23 @@ function table(store: MappingStore, scope: MappingScope): HTMLElement {
     empty.textContent = 'None saved yet.';
     return empty;
   }
-  const el = document.createElement('table');
-  const head = el.createTHead().insertRow();
+  const tableEl = document.createElement('table');
+  const head = tableEl.createTHead().insertRow();
   for (const label of ['Contact', 'Lightning Address', '']) {
     const th = document.createElement('th');
     th.textContent = label;
     head.append(th);
   }
-  const body = el.createTBody();
+  const body = tableEl.createTBody();
   for (const [contactKey, mapping] of rows) {
     const row = body.insertRow();
     row.insertCell().textContent = mapping.displayName;
     const addressCell = row.insertCell();
     addressCell.textContent = mapping.address;
+    if (mapping.nostr?.name || mapping.nostr?.nip05) {
+      const nostr = [mapping.nostr.name, mapping.nostr.nip05 && `✓ ${mapping.nostr.nip05}`].filter(Boolean).join(' ');
+      addressCell.append(el('br'), el('span', 'muted', `Nostr: ${nostr}`));
+    }
     if (mapping.pubkey) addressCell.title = `From Nostr profile ${mapping.pubkey}`;
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -52,7 +56,7 @@ function table(store: MappingStore, scope: MappingScope): HTMLElement {
     });
     row.insertCell().append(remove);
   }
-  return el;
+  return tableEl;
 }
 
 async function render() {

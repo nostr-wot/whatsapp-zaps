@@ -101,6 +101,22 @@ try {
       async sendPayment(pr) { calls.push(`pay:${pr}`); return { preimage: 'ab'.repeat(32) }; },
     };
   });
+  // Imitate WhatsApp's ⋮ dropdown: rendered shortly after the click, closed by Escape.
+  const menuHtml = readFileSync('tests/fixtures/whatsapp-menu.html', 'utf8');
+  await page.addInitScript(html => {
+    document.addEventListener('click', event => {
+      if (!event.target.closest?.('#main header [aria-label="Menu"]')) return;
+      setTimeout(() => {
+        const host = document.createElement('div');
+        host.id = 'fake-dropdown';
+        host.innerHTML = html;
+        document.getElementById('app').append(host);
+      }, 50);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') document.getElementById('fake-dropdown')?.remove();
+    });
+  }, menuHtml);
   page.on('pageerror', err => { throw err; });
   await page.goto('https://web.whatsapp.com/');
 
@@ -211,6 +227,43 @@ try {
     { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey },
   );
   assert.match(await options.textContent('#global'), /Ana from work/);
+
+  // 8. ⋮ menu → "Nostr profile" popup in a one-to-one chat: search, link, unlink.
+  await page.bringToFront();
+  await page.evaluate(() => {
+    for (const row of document.querySelectorAll('#main [data-id]')) row.setAttribute('data-id', 'false_5491100000000@c.us_3EB0AA');
+  });
+  await page.click('#main header [aria-label="Menu"]');
+  await page.waitForSelector('[data-whatsapp-zaps-item]');
+  assert.match(await page.textContent('#fake-dropdown'), /Contact info.*Close chat.*⚡ Nostr profile/s);
+  await page.click('[data-whatsapp-zaps-item]');
+  const popup = await waitForDialog(/Nostr profile/);
+  console.log('popup:', popup);
+  assert.match(popup, /Not linked/);
+  assert.equal(await page.$('#fake-dropdown'), null, 'WhatsApp menu closed');
+  assert.ok(!relayRequests.some(r => r.filter.search === 'Friends & Family'), 'no search before the person asks');
+  // Replace the prefilled name and search.
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Ana');
+  await clickInDialog(/^Search Nostr$/);
+  await waitForDialog(/ana@evil\.example/);
+  await clickInDialog(/✓ ana@nostr\.example/);
+  await clickInDialog(/^Link$/);
+  const linkedView = await waitForDialog(/Linked Friends & Family → ana@wallet\.example/);
+  console.log('linked:', linkedView);
+  assert.match(linkedView, /Ana Paula\s+✓ ana@nostr\.example/);
+  const linkedStore = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
+  assert.deepEqual(
+    { ...linkedStore.zapMappings.global['id:5491100000000@c.us'], updatedAt: 0 },
+    { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example' } },
+  );
+  await clickInDialog(/^Unlink$/);
+  await waitForDialog(/Unlinked\./);
+  const unlinked = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
+  assert.equal(unlinked.zapMappings.global['id:5491100000000@c.us'], undefined);
+  await clickInDialog(/^Close$/);
+  await new Promise(r => setTimeout(r, 200));
+  assert.equal(await dialogText(), null);
 
   console.log('\nSmoke test passed.');
 } finally {

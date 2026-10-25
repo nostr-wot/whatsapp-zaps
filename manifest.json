@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WhatsApp Web Zaps",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Type /zap @name 1000 in WhatsApp Web to send sats through the Nostr WoT wallet.",
   "permissions": [
     "storage"

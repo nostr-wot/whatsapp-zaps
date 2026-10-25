@@ -4,15 +4,17 @@
  */
 import { BRIDGE_REQUEST } from '../constants.ts';
 import { isPayResponse, type PayOutcome, type PayRequest } from '../domain/bridge.ts';
-import { saveMapping } from '../domain/mappings.ts';
+import { removeMapping, saveMapping } from '../domain/mappings.ts';
 import type { BackgroundRequest, BackgroundResponse, RecipientInfo } from '../domain/messages.ts';
 import type { ResolvedInvoice } from '../domain/lnurl.ts';
 import type { ProfileResult } from '../domain/nostr.ts';
 import { runZap } from '../flow.ts';
+import { runLinkPopup } from '../linkFlow.ts';
 import { loadMappings, updateMappings } from '../services/mappingStore.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
-import { readChatKey, readChatTitle, setComposerText } from '../whatsapp/dom.ts';
+import { readChatContact, readChatKey, readChatTitle, setComposerText } from '../whatsapp/dom.ts';
+import { installMenuItem } from '../whatsapp/menu.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage(request) as BackgroundResponse<T> | undefined;
@@ -63,3 +65,21 @@ installInterceptor(({ text, mentions, composer }) => {
     insertMessage: message => setComposerText(composer, message),
   }).finally(() => { busy = false; });
 }, () => busy);
+
+// "⚡ Nostr profile" in the chat header's ⋮ menu.
+installMenuItem(() => {
+  const contact = readChatContact();
+  if (busy || !contact) return;
+  busy = true;
+  void runLinkPopup(contact, {
+    ui: dialog,
+    loadMappings,
+    saveMapping: async (scope, contactKey, displayName, address, pubkey, nostr) => {
+      await updateMappings(store => saveMapping(store, scope, contactKey, displayName, address, Date.now(), pubkey, nostr));
+    },
+    removeMapping: async (scope, contactKey) => {
+      await updateMappings(store => removeMapping(store, scope, contactKey));
+    },
+    resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
+  }).finally(() => { busy = false; });
+});

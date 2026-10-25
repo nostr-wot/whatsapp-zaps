@@ -7,6 +7,9 @@ import { isLightningAddress } from '../domain/lnurl.ts';
 import type { PayOutcome } from '../domain/bridge.ts';
 import type { AddressAnswer, Candidate, ConfirmDetails, ZapUi } from '../flow.ts';
 import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
+import { npubEncode } from 'nostr-tools/nip19';
+import type { Mapping } from '../domain/mappings.ts';
+import type { LinkAnswer, LinkUi, LinkView, LinkedMember } from '../linkFlow.ts';
 
 const STYLE = `
 :host { all: initial; }
@@ -53,6 +56,15 @@ button.option:disabled { opacity: .55; cursor: default; }
 .results { max-height: 260px; overflow-y: auto; margin: 0 0 8px; }
 .verified { color: var(--ok); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+h3 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; }
+.linked { display: grid; gap: 8px; margin: 0 0 4px; }
+.link-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.link-row .who { overflow-wrap: anywhere; min-width: 0; }
+button.small { padding: 4px 12px; font-size: 13px; flex: none; }
+button:disabled { opacity: .5; cursor: default; }
+.ok { color: var(--ok); }
+.small-print { font-size: 12px; }
+#wz-member { margin-bottom: 8px; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 `;
 
@@ -71,7 +83,7 @@ function h<K extends keyof HTMLElementTagNameMap>(
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sats`;
 
-export class ZapDialog implements ZapUi {
+export class ZapDialog implements ZapUi, LinkUi {
   private host: HTMLElement | null = null;
   private card: HTMLElement | null = null;
   private onCancel: (() => void) | null = null;
@@ -233,6 +245,142 @@ export class ZapDialog implements ZapUi {
       });
       this.focusFirst(this.render(form), 'input');
     });
+  }
+
+  link(view: LinkView, notice?: { text: string; error?: boolean }): Promise<LinkAnswer> {
+    return new Promise(resolve => {
+      const { contact } = view;
+      const isGroup = contact.kind === 'group';
+      const done = (value: LinkAnswer) => { searchRun++; this.onCancel = null; resolve(value); };
+      this.onCancel = () => done(null);
+
+      const unlinkButton = (member: LinkedMember, label: string) => {
+        const b = h('button', { type: 'button', class: 'small' }, 'Unlink');
+        b.setAttribute('aria-label', `Unlink ${label}`);
+        this.onClick(b, () => done({ action: 'unlink', contactKey: member.contactKey }));
+        return b;
+      };
+
+      // ── Who, and what they are linked to now ──
+      const header: Child[] = isGroup
+        ? [h('h2', {}, '⚡ Nostr profiles'), h('p', { class: 'muted' }, `Members of ${contact.title}`)]
+        : [h('h2', {}, '⚡ Nostr profile'), h('p', {}, h('strong', {}, contact.name),
+          contact.id ? h('span', { class: 'muted' }, ` · ${contact.id.replace(/@.*/, '')}`) : null)];
+
+      let linked: Child;
+      if (isGroup) {
+        linked = view.members.length
+          ? h('div', { class: 'linked' }, ...view.members.map(m => h('div', { class: 'link-row' },
+            this.linkSummary(m.mapping, m.mapping.displayName), unlinkButton(m, m.mapping.displayName))))
+          : h('p', { class: 'muted' }, 'No members of this group are linked yet.');
+      } else {
+        linked = view.current
+          ? h('div', { class: 'linked' }, h('div', { class: 'link-row' },
+            this.linkSummary(view.current.mapping, null), unlinkButton(view.current, contact.name)))
+          : h('p', { class: 'muted' }, 'Not linked to a Nostr profile or Lightning Address yet.');
+      }
+
+      // ── Link a profile or an address ──
+      const memberInput = isGroup
+        ? h('input', { type: 'text', id: 'wz-member', placeholder: 'Name as shown in the group', autocomplete: 'off', 'aria-label': 'Member name' })
+        : null;
+      const input = h('input', {
+        type: 'text', id: 'wz-query', autocomplete: 'off', spellcheck: 'false',
+        placeholder: 'Name, npub, NIP-05 or Lightning Address',
+        'aria-label': 'Search Nostr, or type a Lightning Address',
+      });
+      // Prefilled for convenience; nothing is searched until the person asks.
+      if (!isGroup) input.value = contact.name;
+      const status = h('p', { class: 'muted', 'aria-live': 'polite' });
+      const results = h('div', { class: 'results' });
+      const message = h('p', { class: notice?.error ? 'error' : 'ok', role: 'status' }, notice?.text ?? '');
+      const searchButton = h('button', { type: 'button' }, 'Search Nostr');
+      const close = h('button', { type: 'button' }, 'Close');
+      const linkButton = h('button', { type: 'submit', class: 'primary' }, view.current ? 'Replace link' : 'Link');
+
+      let picked: ProfileResult | null = null;
+      let searchRun = 0;
+      const refresh = () => {
+        const value = input.value.trim();
+        if (picked && value !== picked.lud16) picked = null;
+        linkButton.disabled = !picked && !isLightningAddress(value);
+      };
+      input.addEventListener('input', refresh);
+
+      const runSearch = async () => {
+        const query = input.value.trim();
+        if (!this.search || !query) return;
+        const run = ++searchRun;
+        status.textContent = 'Searching Nostr…';
+        results.replaceChildren();
+        try {
+          const found = await this.search(query);
+          if (run !== searchRun) return;
+          status.textContent = found.length ? 'Pick the right person. Check the npub if names look alike.' : 'No Nostr profiles found.';
+          results.replaceChildren(...found.map(profile => this.profileOption(profile, () => {
+            picked = profile;
+            input.value = profile.lud16!;
+            if (memberInput && !memberInput.value.trim()) memberInput.value = profile.displayName ?? profile.name ?? '';
+            status.textContent = `Selected ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)} — ${profile.lud16}`;
+            results.replaceChildren();
+            refresh();
+            linkButton.focus();
+          })));
+        } catch (err) {
+          if (run !== searchRun) return;
+          status.textContent = err instanceof Error ? err.message : String(err);
+        }
+      };
+
+      const form = h('form', {},
+        ...header,
+        linked,
+        h('h3', {}, isGroup ? 'Link a member' : view.current ? 'Change link' : 'Link'),
+        memberInput,
+        h('div', { class: 'row' }, input, this.search ? searchButton : null),
+        status,
+        results,
+        message,
+        h('p', { class: 'muted small-print' },
+          'Links are saved only in this browser. Searching sends what you type to public Nostr relays.'),
+        h('div', { class: 'actions' }, close, linkButton),
+      );
+      this.onClick(close, () => done(null));
+      this.onClick(searchButton, () => { void runSearch(); });
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        if (this.requireTrusted && !e.isTrusted) return;
+        const address = input.value.trim();
+        if (!picked && !isLightningAddress(address)) { void runSearch(); return; }
+        const answer: LinkAnswer = { action: 'link', address: picked?.lud16 ?? address };
+        if (memberInput) answer.memberName = memberInput.value.trim();
+        if (picked) {
+          answer.pubkey = picked.pubkey;
+          answer.nostr = { name: picked.displayName ?? picked.name, nip05: picked.nip05Verified ? picked.nip05 : null };
+        }
+        done(answer);
+      });
+      refresh();
+      this.focusFirst(this.render(form), isGroup ? '#wz-member' : '#wz-query');
+    });
+  }
+
+  /** A saved link: the Nostr name and verified NIP-05 when there is one, the npub, the address. */
+  private linkSummary(mapping: Mapping, member: string | null): HTMLElement {
+    const npub = mapping.pubkey ? npubEncode(mapping.pubkey) : null;
+    const npubEl = npub ? h('span', { class: 'muted mono' }, shortNpub(npub)) : null;
+    if (npubEl && npub) npubEl.title = npub;
+    return h('div', { class: 'who' },
+      member ? h('strong', {}, member) : null,
+      member && mapping.nostr?.name ? h('span', { class: 'muted' }, ` · ${mapping.nostr.name}`) : null,
+      !member && mapping.nostr?.name ? h('strong', {}, mapping.nostr.name) : null,
+      !member && !mapping.nostr?.name && !npub ? h('strong', {}, 'Lightning Address') : null,
+      mapping.nostr?.nip05 ? h('span', { class: 'verified' }, ` ✓ ${mapping.nostr.nip05}`) : null,
+      npubEl ? h('br') : null,
+      npubEl,
+      h('br'),
+      h('span', {}, `⚡ ${mapping.address}`),
+    );
   }
 
   /** One search result as a button; profiles without a Lightning Address are shown but disabled. */

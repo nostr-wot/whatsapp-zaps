@@ -190,3 +190,112 @@ describe('ZapDialog — Nostr search', () => {
     assert.equal([...root.querySelectorAll('button')].some(b => b.textContent === 'Search Nostr'), false);
   });
 });
+
+describe('ZapDialog — link popup', () => {
+  beforeEach(() => { installDom(); });
+
+  const PK = 'f'.repeat(64);
+  const PROFILE = { pubkey: PK, npub: 'npub1anaanaanaanaanaana', displayName: 'Ana P', name: 'ana', nip05: 'ana@nostr.example', nip05Verified: true, lud16: 'ana@wallet.example', createdAt: 1 };
+  const contact = { kind: 'contact' as const, id: '5491100000000@c.us', name: 'Ana Paula' };
+
+  function make(search: (q: string) => Promise<typeof PROFILE[]> = async () => [PROFILE]) {
+    const queries: string[] = [];
+    const dialog = new ZapDialog({ shadowMode: 'open', requireTrusted: false, search: q => { queries.push(q); return search(q); } });
+    const root = () => document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    const button = (text: string | RegExp) => [...root().querySelectorAll('button')]
+      .find(b => (typeof text === 'string' ? b.textContent === text : text.test(b.textContent ?? ''))) as HTMLButtonElement;
+    return { dialog, root, button, queries };
+  }
+
+  it('shows the current link with its Nostr name, verified NIP-05 and npub, and unlinks', async () => {
+    const t = make();
+    const answer = t.dialog.link({
+      contact,
+      current: { contactKey: 'id:x', mapping: { address: 'ana@wallet.example', displayName: 'Ana Paula', updatedAt: 1, pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' } } },
+      members: [],
+    });
+    const text = t.root().textContent!;
+    assert.match(text, /Ana Paula · 5491100000000/);
+    assert.match(text, /Ana P ✓ ana@nostr\.example/);
+    assert.match(text, /npub1/);
+    assert.match(text, /⚡ ana@wallet\.example/);
+    assert.equal(t.button(/Replace link/).disabled, true, 'nothing to link yet');
+    t.button('Unlink').click();
+    assert.deepEqual(await answer, { action: 'unlink', contactKey: 'id:x' });
+  });
+
+  it('prefills the contact name but never searches on its own', async () => {
+    const t = make();
+    void t.dialog.link({ contact, current: null, members: [] });
+    assert.equal((t.root().querySelector('#wz-query') as HTMLInputElement).value, 'Ana Paula');
+    assert.match(t.root().textContent!, /saved only in this browser/);
+    await new Promise(r => setTimeout(r, 0));
+    assert.deepEqual(t.queries, []);
+  });
+
+  it('links a picked profile with its pubkey and a snapshot', async () => {
+    const t = make();
+    const answer = t.dialog.link({ contact, current: null, members: [] });
+    t.button('Search Nostr').click();
+    await new Promise(r => setTimeout(r, 0));
+    assert.deepEqual(t.queries, ['Ana Paula']);
+    (t.root().querySelector('.results button.option') as HTMLButtonElement).click();
+    assert.equal(t.button('Link').disabled, false);
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, {
+      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+    });
+  });
+
+  it('never stores an unverified NIP-05 in the snapshot', async () => {
+    const t = make(async () => [{ ...PROFILE, nip05Verified: false }]);
+    const answer = t.dialog.link({ contact, current: null, members: [] });
+    t.button('Search Nostr').click();
+    await new Promise(r => setTimeout(r, 0));
+    (t.root().querySelector('.results button.option') as HTMLButtonElement).click();
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.equal((await answer as { nostr: { nip05: string | null } }).nostr.nip05, null);
+  });
+
+  it('links a typed Lightning Address without Nostr', async () => {
+    const t = make();
+    const answer = t.dialog.link({ contact, current: null, members: [] });
+    const input = t.root().querySelector('#wz-query') as HTMLInputElement;
+    input.value = 'ana@wallet.example';
+    input.dispatchEvent(new Event('input'));
+    assert.equal(t.button('Link').disabled, false);
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { action: 'link', address: 'ana@wallet.example' });
+    assert.deepEqual(t.queries, []);
+  });
+
+  it('in a group, lists linked members and asks for the member’s name', async () => {
+    const t = make();
+    const answer = t.dialog.link({
+      contact: { kind: 'group', chatKey: 'jid:1@g.us', title: 'Friends' },
+      current: null,
+      members: [{ contactKey: 'name:bob', mapping: { address: 'bob@x.example', displayName: 'Bob', updatedAt: 1 } }],
+    });
+    assert.match(t.root().textContent!, /Members of Friends/);
+    assert.match(t.root().textContent!, /Bob.*bob@x\.example/s);
+    const member = t.root().querySelector('#wz-member') as HTMLInputElement;
+    const input = t.root().querySelector('#wz-query') as HTMLInputElement;
+    assert.equal(input.value, '', 'nothing prefilled in a group');
+    input.value = 'Ana';
+    t.button('Search Nostr').click();
+    await new Promise(r => setTimeout(r, 0));
+    (t.root().querySelector('.results button.option') as HTMLButtonElement).click();
+    assert.equal(member.value, 'Ana P', 'member name suggested from the profile');
+    member.value = 'Ana from work';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, {
+      action: 'link', address: 'ana@wallet.example', memberName: 'Ana from work', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+    });
+  });
+
+  it('shows notices from the last action', () => {
+    const t = make();
+    void t.dialog.link({ contact, current: null, members: [] }, { text: 'x@y.example: LNURL: endpoint returned 404', error: true });
+    assert.match(t.root().querySelector('.error')!.textContent!, /404/);
+  });
+});
