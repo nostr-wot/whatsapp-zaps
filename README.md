@@ -30,6 +30,20 @@ used. Replying to your own message is refused. A mention in the command wins
 over the reply. The ⚡ message is sent while the reply is open, so it goes out
 as a reply to their message.
 
+### Reacting with ⚡
+
+React to a message with ⚡ and its author is zapped — 21 sats by default,
+changeable under Settings. Pick ⚡ in WhatsApp's reaction picker (it is under
+"+" if it is not among the quick reactions). The confirm screen still comes
+first; nothing is paid without it. A reaction zap only pays: it posts no
+message and never touches the message box, so a draft you are typing stays as
+it is. Reactions to your own messages are ignored, and reacting with ⚡ to the
+same message again asks before paying again.
+
+The ⚡ is recognised by the emoji itself (its text, or an image's alt text) in
+a picker opened from a message; ⚡ in the emoji panel used while typing, an
+existing reaction badge, or text inside messages does not count.
+
 ### After paying
 
 The confirm screen has **Post in the chat once the payment is confirmed**,
@@ -171,10 +185,27 @@ Lightning Address, but it usually is not one: its server answers "not found"
 verified NIP-05 of a profile, that profile's Lightning Address is used, and the
 popup or confirm screen shows it. Otherwise it is used as you typed it.
 
+### Searching
+
+Results appear as you type (after a short pause, from two characters). Text
+filled in for you, such as the contact's name, is only searched once you edit
+it or press Search. Profiles without a Lightning Address are folded away, and
+the arrow keys move through the results.
+
+Pictures are fetched by the extension's background and shown as data, so
+WhatsApp's page cannot block them; they load when the image host allows
+cross-origin reads, as Nostr media hosts generally do (Blossom servers must),
+and the initial stays otherwise.
+
+Optionally, put your own npub under Settings: people you follow then come first
+and carry a "You follow" badge. Only your public follow list is read; nothing
+is signed or published.
+
 ### Where searches go
 
-- **Names** go to the public NIP-50 search relays (`relay.nostr.band`,
-  `search.nos.today`), which see what you search for.
+- **Names** go to public NIP-50 search relays (`relay.nostr.band`,
+  `search.nos.today`, `relay.noswhere.com`, `relay.ditto.pub`), which see what
+  you search for. Results are cached for five minutes.
 - **npub and NIP-05 lookups** ask a few general relays for that one profile.
   A NIP-05 lookup also fetches `https://<domain>/.well-known/nostr.json`.
 
@@ -191,6 +222,7 @@ safeguards as LNURL: no redirects, a timeout and a size cap.
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
 | `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu |
 | `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in green in the message box |
+| `src/whatsapp/replies.ts`, `reactions.ts` | — | The message last acted on; ⚡ reactions to it |
 | `src/options/` | extension page | Contacts page; also built as the toolbar popup (`popup.html`) |
 
 ### Who authorizes the payment

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { commandKey, runZap, type ZapDeps, type ZapUi, type AddressAnswer, type Candidate } from '../src/flow.ts';
+import { commandKey, runReactionZap, runZap, type ZapDeps, type ZapUi, type AddressAnswer, type Candidate } from '../src/flow.ts';
 import { emptyStore, saveMapping, type MappingStore } from '../src/domain/mappings.ts';
 import { messagePreview } from '../src/domain/command.ts';
 import type { RecipientInfo } from '../src/domain/messages.ts';
@@ -33,10 +33,10 @@ function setup(script: Script = {}) {
     choose: async (_n, c) => { log.push(`choose:${c.length}`); return script.choose ? script.choose(c) : null; },
     showLoading: m => { log.push(`loading:${m}`); },
     confirm: async d => {
-      log.push(`confirm:${d.recipient.address}:${d.amountSats}:${d.comment}`);
+      log.push(`confirm:${d.recipient.address}:${d.amountSats}:${d.comment}${d.chatMessage ? '' : ':no-post'}${d.reason ? ':reason' : ''}`);
       return script.confirm === false ? false : { post: script.post ?? true };
     },
-    confirmRepeat: async (minutes, d) => { log.push(`repeat:${minutes}:${d.name}:${d.amountSats}`); return script.payAgain ?? false; },
+    confirmRepeat: async (minutes, d) => { log.push(`repeat:${minutes}:${d.name}:${d.amountSats}${d.reaction ? ':reaction' : ''}`); return script.payAgain ?? false; },
     showResult: async (o, _d, after) => {
       log.push(`result:${o.outcome}${after ? `:${after.message}:${after.commandCleared ? 'cleared' : 'not-cleared'}` : ''}`);
     },
@@ -325,5 +325,40 @@ describe('runZap', () => {
     assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'error');
     assert.ok(log.includes('error:LNURL: invoice is for 6 sats, not the 5 sats requested'));
     assert.equal(log.some(l => l.startsWith('pay')), false);
+  });
+});
+
+describe('runReactionZap', () => {
+  const store = saveMapping(emptyStore(), { kind: 'global' }, 'id:7@c.us', 'Fierillo', 'f@w.example');
+
+  it('pays the author once, posts nothing and never touches the message box', async () => {
+    const { deps, log } = setup({ store });
+    const result = await runReactionZap({ name: 'Fierillo', id: '7@c.us', fromMe: false, messageId: 'false_1@g.us_A_7@c.us' }, 21, { ...CHAT, isGroup: true }, deps);
+    assert.equal(result, 'paid');
+    assert.ok(log.includes('confirm:f@w.example:21::no-post:reason'));
+    assert.ok(log.includes('lastPaid:reaction|false_1@g.us_A_7@c.us'));
+    assert.ok(log.includes('markPaid:reaction|false_1@g.us_A_7@c.us'));
+    assert.equal(log.some(l => l === 'clear' || l.startsWith('post:') || l.startsWith('prefer:')), false);
+    assert.ok(log.includes('result:paid'));
+  });
+
+  it('ignores one’s own messages', async () => {
+    const { deps, log } = setup({ store });
+    assert.equal(await runReactionZap({ name: 'Me', id: null, fromMe: true, messageId: 'x' }, 21, CHAT, deps), 'invalid');
+    assert.deepEqual(log, []);
+  });
+
+  it('in a private chat, pays the chat’s contact', async () => {
+    const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:54911@c.us', 'Ana', 'ana@w.example') });
+    const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' }, isGroup: false };
+    await runReactionZap({ name: 'Ana', id: null, fromMe: false, messageId: 'false_54911@c.us_B' }, 21, chat, deps);
+    assert.ok(log.includes('confirm:ana@w.example:21::no-post:reason'));
+  });
+
+  it('asks before paying for the same message again, without touching the box', async () => {
+    const { deps, log } = setup({ store, paidBefore: 9 * 60_000 });
+    assert.equal(await runReactionZap({ name: 'Fierillo', id: '7@c.us', fromMe: false, messageId: 'm1' }, 21, { ...CHAT, isGroup: true }, deps), 'cancelled');
+    assert.ok(log.includes('repeat:1:Fierillo:21:reaction'));
+    assert.equal(log.includes('clear'), false);
   });
 });

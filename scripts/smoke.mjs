@@ -41,7 +41,7 @@ const anaPubkey = getPublicKey(anaKey);
 const profile = (sk, content) => finalizeEvent({ kind: 0, created_at: 1_700_000_000, tags: [], content: JSON.stringify(content) }, sk);
 const profiles = [
   profile(generateSecretKey(), { name: 'ana', display_name: 'Ana Paula', lud16: 'ana@evil.example', nip05: 'ana@nostr.example' }),
-  profile(anaKey, { name: 'ana', display_name: 'Ana Paula', lud16: 'ana@wallet.example', nip05: 'ana@nostr.example' }),
+  profile(anaKey, { name: 'ana', display_name: 'Ana Paula', lud16: 'ana@wallet.example', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' }),
 ];
 const relayRequests = [];
 
@@ -59,6 +59,12 @@ const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: rea
   if (url.host === 'web.whatsapp.com' && url.pathname === '/lexical-composer.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(lexicalBundle); }
   if (url.host === 'web.whatsapp.com') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(url.searchParams.has('lexical') ? lexicalFixture : fixture); }
   if (url.host === 'nostr.example' && url.pathname === '/.well-known/nostr.json') return json({ names: { ana: anaPubkey } });
+  if (url.pathname === '/ana.png') {
+    // A 1×1 PNG.
+    // Like Nostr media hosts (Blossom requires it): readable cross-origin.
+    res.writeHead(200, { 'content-type': 'image/png', 'access-control-allow-origin': '*' });
+    return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+  }
   if (url.pathname === '/.well-known/lnurlp/ana') {
     return json({ tag: 'payRequest', callback: 'https://wallet.example/cb/ana', minSendable: 1000, maxSendable: 1e9, metadata: METADATA, commentAllowed: 50 });
   }
@@ -186,6 +192,17 @@ try {
   await page.keyboard.press('Enter');
   const found = await waitForDialog(/ana@evil\.example/);
   console.log('search:', found);
+  // The verified profile's picture is shown, fetched by the background as a data: URL.
+  let pictureShown = false;
+  for (let i = 0; i < 30 && !pictureShown; i++) {
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    pictureShown = (function find(n) {
+      if (n.nodeName === 'IMG' && /data:image\/png;base64,/.test((n.attributes ?? []).join(' '))) return true;
+      return [...(n.children ?? []), ...(n.shadowRoots ?? [])].some(find);
+    })(root);
+    if (!pictureShown) await new Promise(r => setTimeout(r, 100));
+  }
+  assert.ok(pictureShown, 'profile picture shown in the dialog');
   await shot('2-search');
   assert.match(found, /✓ ana@nostr\.example .*ana@wallet\.example .*ana@nostr\.example \(not verified\)/s, 'verified profile first, impostor marked');
   assert.ok(relayRequests.some(r => r.filter.search === 'Ana' && SEARCH_RELAYS.some(u => new URL(u).host === r.host)));
@@ -243,7 +260,7 @@ try {
   const after = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
   assert.deepEqual(
     { ...after.zapMappings.global['name:ana from work'], updatedAt: 0 },
-    { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example' } },
+    { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
   );
   assert.match(await options.textContent('#global'), /Ana from work/);
 
@@ -274,7 +291,7 @@ try {
   const linkedStore = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
   assert.deepEqual(
     { ...linkedStore.zapMappings.global['id:5491100000000@c.us'], updatedAt: 0 },
-    { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example' } },
+    { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
   );
   await shot('5-linked');
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -513,6 +530,61 @@ try {
   console.log('own reply:', ownText);
   assert.match(ownText ?? '', /That is your own message/);
   await own.close();
+
+  // 17. ⚡ reaction to a message: zap its author 21 sats, post nothing, keep the draft.
+  const react = await context.newPage();
+  await react.addInitScript(() => {
+    const calls = (window.__weblnCalls = []);
+    window.webln = { enabled: true, async enable() {}, async sendPayment(pr) { calls.push(pr); return { preimage: 'aa'.repeat(32) }; } };
+  });
+  await react.goto(`https://web.whatsapp.com/?lexical=1&text=${encodeURIComponent('draft stays')}`);
+  await react.waitForFunction(() => window.__lexicalReady);
+  const reactCdp = await context.newCDPSession(react);
+  const reactDialog = async pattern => {
+    for (let i = 0; i < 100; i++) {
+      const { root } = await reactCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+      const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+      const out = [];
+      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+      const text = host ? out.join(' ') : null;
+      if (pattern === null ? text === null : text !== null && pattern.test(text)) return text;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    throw new Error(`reaction dialog never matched ${pattern}`);
+  };
+  const reactWithLightning = async () => {
+    await (await react.$$('#main [data-id]'))[0].click();
+    // WhatsApp's reaction picker floats over the chat, outside the message.
+    await react.evaluate(() => {
+      document.getElementById('picker')?.remove();
+      const picker = document.createElement('div');
+      picker.id = 'picker';
+      picker.style.cssText = 'position:fixed;top:40px;left:300px;display:flex;gap:8px;font-size:24px';
+      picker.innerHTML = '<span role="button">👍</span><span role="button" id="bolt">⚡</span>';
+      document.body.append(picker);
+    });
+    await react.click('#bolt');
+  };
+  await reactWithLightning();
+  const reactConfirm = await reactDialog(/Confirm zap/);
+  console.log('reaction confirm:', reactConfirm);
+  assert.match(reactConfirm, /21 sats\s+to Ana Paula.*For your ⚡ reaction/s);
+  assert.doesNotMatch(reactConfirm, /Post in the chat/);
+  await react.keyboard.press('Enter');
+  const reactResult = await reactDialog(/Zap sent/);
+  assert.doesNotMatch(reactResult, /Posted in the chat/);
+  assert.equal((await react.evaluate(() => window.__weblnCalls)).length, 1);
+  assert.deepEqual(await react.$$eval('.sent-message', els => els.length), 0, 'nothing posted');
+  assert.equal(await react.$eval(lexBox, el => el.textContent), 'draft stays', 'the draft is untouched');
+  await react.keyboard.press('Enter');
+  await reactDialog(null);
+  await reactWithLightning();
+  const again = await reactDialog(/Already paid.*⚡ reaction to this same message/s);
+  console.log('reaction again:', again.slice(0, 80));
+  await react.keyboard.press('Enter');
+  await reactDialog(null);
+  assert.equal((await react.evaluate(() => window.__weblnCalls)).length, 1, 'no second payment');
+  await react.close();
 
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();

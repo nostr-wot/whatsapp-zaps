@@ -8,14 +8,14 @@ import { removeMapping, saveMapping } from '../domain/mappings.ts';
 import type { BackgroundRequest, BackgroundResponse, RecipientInfo } from '../domain/messages.ts';
 import type { ResolvedInvoice } from '../domain/lnurl.ts';
 import type { ProfileResult } from '../domain/nostr.ts';
-import { runZap } from '../flow.ts';
+import { runReactionZap, runZap, type ChatContext, type ZapDeps } from '../flow.ts';
 import { runLinkPopup } from '../linkFlow.ts';
 import { loadMappings as loadStoredMappings, updateMappings as updateStoredMappings } from '../services/mappingStore.ts';
 import type { MappingStore } from '../domain/mappings.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
-  replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
+  readMessageAuthor, replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
   sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
 import { recordDiagnostic } from '../services/diagnostics.ts';
@@ -49,6 +49,8 @@ function orphaned(): boolean {
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installReplyTracker } from '../whatsapp/replies.ts';
+import { installReactionWatcher } from '../whatsapp/reactions.ts';
+import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY } from '../constants.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
@@ -94,6 +96,13 @@ if (isExtensionAlive()) void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PRE
   if (typeof stored[POST_PREFERENCE_KEY] === 'boolean') postByDefault = stored[POST_PREFERENCE_KEY];
 });
 
+async function reactionAmount(): Promise<number> {
+  if (!isExtensionAlive()) return DEFAULT_REACTION_SATS;
+  const stored = await chrome.storage.local.get(REACTION_AMOUNT_KEY);
+  const amount = stored[REACTION_AMOUNT_KEY];
+  return typeof amount === 'number' && Number.isSafeInteger(amount) && amount > 0 ? amount : DEFAULT_REACTION_SATS;
+}
+
 let busy = false;
 const replies = installReplyTracker();
 uninstallers.push(replies.uninstall);
@@ -103,11 +112,10 @@ const dialog = new ZapDialog({
   avatar: url => ask<string | null>({ type: 'avatar', url }),
 });
 
-uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
-  if (orphaned()) return;
-  busy = true;
+/** What the flows need to know about the open chat. */
+function chatContext(): ChatContext {
   const contact = readChatContact();
-  const chat = {
+  return {
     chatKey: readChatKey(),
     chatTitle: readChatTitle(),
     contact: contact?.kind === 'contact' ? { label: contact.name, id: contact.id } : null,
@@ -115,7 +123,11 @@ uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
     isGroup: contact?.kind === 'group' ? true : contact?.kind === 'contact' && contact.id ? false : null,
     replyTo: replyAuthor(replies.lastRow()),
   };
-  void runZap(text, mentions, chat, {
+}
+
+/** The flows' side effects. `composer` is the box a command was typed in. */
+function zapDeps(composer: HTMLElement | null): ZapDeps {
+  return {
     ui: dialog,
     loadMappings,
     saveMapping: async (scope, contactKey, displayName, address, pubkey) => {
@@ -126,13 +138,13 @@ uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
     pay,
     // WhatsApp may have re-rendered the box while the dialog was open.
     clearComposer: async () => {
-      const box = findComposer() ?? composer;
+      const box = findComposer() ?? composer!;
       const cleared = await replaceComposerText(box, '');
       updateHighlight();
       return cleared;
     },
     postMessage: async message => {
-      const box = findComposer() ?? composer;
+      const box = findComposer() ?? composer!;
       // Never send unless the box holds exactly the intended message: anything
       // else (a half-replaced /zap command above all) must not go out.
       let ready = false;
@@ -177,8 +189,26 @@ uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
       postByDefault = post;
       if (isExtensionAlive()) void chrome.storage.local.set({ [POST_PREFERENCE_KEY]: post });
     },
-  }).finally(() => { busy = false; });
+  };
+}
+
+uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
+  if (orphaned()) return;
+  busy = true;
+  void runZap(text, mentions, chatContext(), zapDeps(composer)).finally(() => { busy = false; });
 }, () => busy, document, current));
+
+// ⚡ reaction to a message: zap its author.
+const reactions = installReactionWatcher(row => {
+  if (orphaned() || busy) return;
+  const author = readMessageAuthor(row);
+  if (author.fromMe) return;
+  busy = true;
+  void reactionAmount()
+    .then(amount => runReactionZap({ ...author, messageId: row.getAttribute('data-id') ?? '' }, amount, chatContext(), zapDeps(null)))
+    .finally(() => { busy = false; });
+}, replies.lastRow, document, current);
+uninstallers.push(reactions.uninstall);
 
 // "⚡ Nostr profile" in the chat header's ⋮ menu.
 uninstallers.push(installMenuItem(() => {

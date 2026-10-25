@@ -24,8 +24,10 @@ export interface ConfirmDetails {
   recipient: RecipientInfo;
   amountSats: number;
   comment: string;
-  /** The message that would be posted in the chat once the payment is confirmed. */
-  chatMessage: ChatMessage;
+  /** The message that would be posted in the chat once the payment is confirmed; null posts nothing. */
+  chatMessage: ChatMessage | null;
+  /** Why this zap, when it is not obvious (a ⚡ reaction). */
+  reason?: string;
   /** Whether "post it after paying" starts ticked (the person's last choice). */
   postByDefault: boolean;
 }
@@ -62,7 +64,7 @@ export interface ZapUi {
   /** Show the payment summary. False when cancelled, otherwise whether to post the message after paying. */
   confirm(details: ConfirmDetails): Promise<ConfirmAnswer>;
   /** The same command was paid moments ago: ask before paying again. True to pay again. */
-  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number }): Promise<boolean>;
+  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number; reaction?: boolean }): Promise<boolean>;
   /** Show the result, and for a confirmed payment what happened in the chat. */
   showResult(outcome: PayOutcome, details: ConfirmDetails, aftermath: ChatAftermath | null): Promise<void>;
   /** Show an error that ended the flow before anything was paid. */
@@ -194,6 +196,71 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     return 'invalid';
   }
 
+  return zapRecipient(deps, chat, recipient, amountSats, comment, {
+    key: commandKey(text, chat.chatKey),
+    // - paying the person the chat is with: "Zapped you";
+    // - a picked mention: kept as the real mention, whatever the page guess says;
+    // - a typed name or a reply's author: plain text in a chat known to be
+    //   private (WhatsApp has no mentions there), otherwise a mention made
+    //   through WhatsApp's list. Sent while the reply is open, the message
+    //   also goes out as a reply to their message.
+    chatMessage: source === 'chat'
+      ? zapChatMessage(null, amountSats, comment)
+      : kind === 'private'
+        ? { text: zapMessage(recipient.label, amountSats, comment) }
+        : zapChatMessage(recipient, amountSats, comment),
+  });
+}
+
+/** The author of a message the person reacted to with ⚡. */
+export interface ReactionTarget {
+  name: string | null;
+  id: string | null;
+  fromMe: boolean;
+  /** The message's data-id: reacting to the same message again asks first. */
+  messageId: string;
+}
+
+/**
+ * Zap the author of a message the person reacted to with ⚡. The reaction is
+ * already the message in the chat, so nothing is posted and the message box
+ * (perhaps holding a draft) is never touched. Own messages are ignored.
+ */
+export async function runReactionZap(target: ReactionTarget, amountSats: number, chat: ChatContext, deps: ZapDeps): Promise<FlowResult> {
+  if (target.fromMe) return 'invalid';
+  // Group messages name their author's contact id; in a private chat the author
+  // is the person the chat is with (saved under their id), so prefer that.
+  const recipient: Mention | null = target.id
+    ? { label: target.name ?? target.id.replace(/@.*/, ''), id: target.id }
+    : chat.isGroup !== true && chat.contact
+      ? chat.contact
+      : target.name ? { label: target.name, id: null } : null;
+  if (!recipient) {
+    await deps.ui.showError('Could not tell who wrote that message, so nothing was paid. Reply to it with /zap amount instead.');
+    deps.ui.close();
+    return 'invalid';
+  }
+  return zapRecipient(deps, chat, recipient, amountSats, '', {
+    key: `reaction|${target.messageId}`,
+    chatMessage: null,
+    reason: 'For your ⚡ reaction. The reaction stays whether or not you pay.',
+  });
+}
+
+interface ZapOptions {
+  /** Remembered once paid: the same key again asks before paying. */
+  key: string;
+  /** Posted after a confirmed payment; null when the zap must not touch the chat. */
+  chatMessage: ChatMessage | null;
+  /** Shown on the confirm screen: why this zap. */
+  reason?: string;
+}
+
+/** Find the address, confirm, pay exactly once, then (optionally) post. */
+async function zapRecipient(
+  deps: ZapDeps, chat: ChatContext, recipient: Mention, amountSats: number, comment: string, opts: ZapOptions,
+): Promise<FlowResult> {
+  const touchesChat = opts.chatMessage !== null;
   try {
     const picked = await pickAddress(deps, chat, recipient);
     if (!picked) {
@@ -202,18 +269,9 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      // - paying the person the chat is with: "Zapped you";
-      // - a picked mention: kept as the real mention, whatever the page guess says;
-      // - a typed name or a reply's author: plain text in a chat known to be
-      //   private (WhatsApp has no mentions there), otherwise a mention made
-      //   through WhatsApp's list. Sent while the reply is open, the message
-      //   also goes out as a reply to their message.
-      chatMessage: source === 'chat'
-        ? zapChatMessage(null, amountSats, comment)
-        : kind === 'private'
-          ? { text: zapMessage(recipient.label, amountSats, comment) }
-          : zapChatMessage(recipient, amountSats, comment),
+      chatMessage: opts.chatMessage,
       postByDefault: deps.postByDefault,
+      reason: opts.reason,
     };
 
     if (amountSats < picked.info.minSats || amountSats > picked.info.maxSats) {
@@ -226,13 +284,13 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
       return 'error';
     }
 
-    // The same command, just paid: almost always a box that was not cleared, not a second zap.
-    const key = commandKey(text, chat.chatKey);
-    const paidAt = deps.lastPaid(key);
+    // The same zap, just paid: for a command, almost always a box that was not
+    // cleared; for a reaction, the same message reacted to again.
+    const paidAt = deps.lastPaid(opts.key);
     if (paidAt !== null) {
       const minutesAgo = Math.max(0, Math.round(((deps.now?.() ?? Date.now()) - paidAt) / 60_000));
-      if (!(await deps.ui.confirmRepeat(minutesAgo, { name: recipient.label, amountSats }))) {
-        await deps.clearComposer();
+      if (!(await deps.ui.confirmRepeat(minutesAgo, { name: recipient.label, amountSats, reaction: !touchesChat }))) {
+        if (touchesChat) await deps.clearComposer();
         deps.ui.close();
         return 'cancelled';
       }
@@ -243,7 +301,7 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
       deps.ui.close();
       return 'cancelled';
     }
-    deps.setPostPreference(answer.post);
+    if (touchesChat) deps.setPostPreference(answer.post);
 
     deps.ui.showLoading('Requesting invoice…');
     const invoice = await deps.invoice(picked.address, amountSats, comment);
@@ -256,14 +314,14 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     // Only a confirmed payment (the wallet returned its proof) touches the chat.
     let aftermath: ChatAftermath | null = null;
     if (outcome.outcome === 'paid') {
-      deps.markPaid(key);
-      if (answer.post) {
+      deps.markPaid(opts.key);
+      if (opts.chatMessage && answer.post) {
         deps.ui.showLoading('Paid. Posting in the chat…');
-        const sent = await deps.postMessage(details.chatMessage).catch(() => false);
+        const sent = await deps.postMessage(opts.chatMessage).catch(() => false);
         aftermath = sent
           ? { commandCleared: true, message: 'sent' }
           : { commandCleared: await deps.clearComposer().catch(() => false), message: 'not_sent' };
-      } else {
+      } else if (touchesChat) {
         aftermath = { commandCleared: await deps.clearComposer().catch(() => false), message: null };
       }
     }

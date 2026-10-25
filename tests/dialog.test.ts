@@ -104,7 +104,7 @@ describe('ZapDialog', () => {
     void failed.dialog.showResult({ outcome: 'paid', preimage: 'p' }, DETAILS, { commandCleared: false, message: 'not_sent' });
     const text = failed.root()!.textContent!;
     assert.match(text, /could not be posted/);
-    assert.equal(failed.root()!.querySelector('.copy-box output')!.textContent, DETAILS.chatMessage.text);
+    assert.equal(failed.root()!.querySelector('.copy-box output')!.textContent, DETAILS.chatMessage!.text);
     assert.match(text, /still in the message box/);
   });
 

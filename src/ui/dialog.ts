@@ -693,7 +693,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       const post = h('input', { type: 'checkbox', id: 'wz-post' });
       post.checked = details.postByDefault;
       this.onClick(cancel, () => done(false));
-      this.onClick(pay, () => done({ post: post.checked }));
+      this.onClick(pay, () => done({ post: details.chatMessage !== null && post.checked }));
       const { recipient } = details;
       this.focusFirst(this.render(
         h('h2', {}, 'Confirm zap'),
@@ -712,16 +712,17 @@ export class ZapDialog implements ZapUi, LinkUi {
           ? h('p', { class: 'warn' }, 'This address does not accept comments; it will not be sent.') : null,
         details.comment && recipient.commentAllowed > 0 && details.comment.length > recipient.commentAllowed
           ? h('p', { class: 'warn' }, `The comment will be cut to ${recipient.commentAllowed} characters.`) : null,
-        h('label', { class: 'post', for: 'wz-post' }, post,
+        details.reason ? h('p', { class: 'muted' }, details.reason) : null,
+        details.chatMessage ? h('label', { class: 'post', for: 'wz-post' }, post,
           h('span', {}, 'Post in the chat once the payment is confirmed',
-            h('span', { class: 'preview' }, ...previewParts(details.chatMessage)))),
+            h('span', { class: 'preview' }, ...previewParts(details.chatMessage)))) : null,
         h('p', { class: 'muted' }, 'Your Nostr WoT wallet pays this and may ask you to approve it.'),
         h('div', { class: 'actions' }, cancel, pay),
       ), 'button.primary');
     });
   }
 
-  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number }): Promise<boolean> {
+  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number; reaction?: boolean }): Promise<boolean> {
     return new Promise(resolve => {
       const done = (value: boolean) => { this.onCancel = null; resolve(value); };
       this.onCancel = () => done(false);
@@ -733,8 +734,10 @@ export class ZapDialog implements ZapUi, LinkUi {
       this.focusFirst(this.render(
         h('h2', {}, 'Already paid'),
         h('div', { class: 'state unsure' },
-          h('p', {}, 'You paid ', h('strong', {}, sats(details.amountSats)), ` to ${details.name} with this same command ${when}.`)),
-        h('p', {}, 'Pay again only if you mean to send a second zap. “Don’t pay again” removes the command from the message box.'),
+          h('p', {}, 'You paid ', h('strong', {}, sats(details.amountSats)), ` to ${details.name} ${details.reaction ? 'for a ⚡ reaction to this same message' : 'with this same command'} ${when}.`)),
+        h('p', {}, details.reaction
+          ? 'Pay again only if you mean to send a second zap.'
+          : 'Pay again only if you mean to send a second zap. “Don’t pay again” removes the command from the message box.'),
         h('div', { class: 'actions' }, again, stop),
       ), 'button.primary');
     });
@@ -750,15 +753,15 @@ export class ZapDialog implements ZapUi, LinkUi {
       if (outcome.outcome === 'paid') {
         const notes: Child[] = [];
         if (aftermath?.message === 'sent') {
-          notes.push(h('p', { class: 'muted' }, 'Posted in the chat: ', h('span', { class: 'preview-inline' }, ...previewParts(details.chatMessage))));
+          notes.push(h('p', { class: 'muted' }, 'Posted in the chat: ', h('span', { class: 'preview-inline' }, ...previewParts(details.chatMessage!))));
         } else if (aftermath?.message === 'not_sent') {
           const copy = h('button', { type: 'button', class: 'small' }, 'Copy');
           this.onClick(copy, () => {
-            void navigator.clipboard?.writeText(details.chatMessage.text).then(() => { copy.textContent = 'Copied'; }, () => {});
+            void navigator.clipboard?.writeText(details.chatMessage!.text).then(() => { copy.textContent = 'Copied'; }, () => {});
           });
           notes.push(
             h('p', { class: 'warn' }, 'The message could not be posted in the chat. Copy it and send it yourself:'),
-            h('div', { class: 'copy-box' }, h('output', {}, details.chatMessage.text), copy),
+            h('div', { class: 'copy-box' }, h('output', {}, details.chatMessage!.text), copy),
           );
         }
         if (aftermath && !aftermath.commandCleared) {
