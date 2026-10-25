@@ -396,6 +396,18 @@ try {
     await chrome.storage.local.set({ zapMappings });
   });
   const members = 'Jaqui:5491177@c.us,Bob:5491188@c.us,Bea:5491199@c.us';
+  async function openReply(tab, index) {
+    const row = (await tab.$$('#main [data-id]'))[index];
+    await row.click();
+    await tab.evaluate(i => {
+      const r = document.querySelectorAll('#main [data-id]')[i];
+      const name = /\]\s*(.+?):\s*$/.exec(r.querySelector('[data-pre-plain-text]').getAttribute('data-pre-plain-text'))[1];
+      const preview = document.createElement('div');
+      preview.innerHTML = `<div><span dir="auto">${r.getAttribute('data-id').startsWith('true_') ? 'You' : name}</span><span>${r.textContent}</span></div><div role="button"><span data-icon="x"></span></div>`;
+      document.querySelector('footer').prepend(preview);
+    }, index);
+  }
+
   async function groupZap(query) {
     const tab = await context.newPage();
     await tab.addInitScript(() => {
@@ -406,6 +418,9 @@ try {
     await tab.waitForFunction(() => window.__lexicalReady);
     // `norows`: no message ids on the page, so the chat cannot be identified (group or private).
     if (query.includes('norows')) await tab.evaluate(() => { for (const row of document.querySelectorAll('#main [data-id]')) row.remove(); });
+    // `replyto=N`: click message N and open a reply to it, as WhatsApp shows one.
+    const replyTo = /replyto=(\d)/.exec(query)?.[1];
+    if (replyTo !== undefined) await openReply(tab, Number(replyTo));
     const tabCdp = await context.newCDPSession(tab);
     const until = async pattern => {
       const deadline = Date.now() + 10_000;
@@ -472,6 +487,32 @@ try {
   const unidentified = await groupZap(`norows=1&markup=opaque&mention=${encodeURIComponent('Jaqui:5491177@c.us')}&text=${encodeURIComponent('/zap @Jaqui 10')}`);
   console.log('unidentified chat:', unidentified.messages);
   assert.deepEqual(unidentified.messages, ['⚡ Zapped @Jaqui{{5491177@c.us}} 10 sats']);
+
+  // 16. Replying in a group: `/zap 12 great point` pays the author of that message.
+  const replied = await groupZap(`replyto=0&members=${encodeURIComponent('Ana Paula:5491100000000@c.us,Ana Lia:5491100000001@c.us,Bob:5491188@c.us')}&text=${encodeURIComponent('/zap 12 great point')}`);
+  console.log('reply:', replied.messages);
+  assert.match(replied.confirmText, /12 sats\s+to Ana Paula/);
+  assert.deepEqual(replied.messages, ['⚡ Zapped @Ana Paula{{5491100000000@c.us}} 12 sats — great point']);
+  //     ...and a reply to one's own message is refused.
+  const own = await context.newPage();
+  await own.addInitScript(() => { window.webln = { enabled: true, async enable() {}, async sendPayment() { throw new Error('must not pay'); } }; });
+  await own.goto(`https://web.whatsapp.com/?lexical=1&text=${encodeURIComponent('/zap 13')}`);
+  await own.waitForFunction(() => window.__lexicalReady);
+  await openReply(own, 1);
+  await own.click(lexBox);
+  await own.keyboard.press('End');
+  await own.keyboard.press('Enter');
+  const ownCdp = await context.newCDPSession(own);
+  let ownText = null;
+  for (let i = 0; i < 50 && !ownText; i++) {
+    const { root } = await ownCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); ownText = out.join(' '); }
+    else await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('own reply:', ownText);
+  assert.match(ownText ?? '', /That is your own message/);
+  await own.close();
 
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();

@@ -43,8 +43,17 @@ export const SELECTORS = {
     '#main header span[dir="auto"][title]',
     '#main header span[dir="auto"]',
   ],
-  /** Message rows; their data-id embeds the chat id. */
+  /** Message rows; their data-id embeds the chat id (and, in groups, the author's id). */
   messageRow: ['#main [data-id]'],
+  /** A message's copyable text; `data-pre-plain-text` is "[time, date] Author: ". */
+  messageMeta: ['[data-pre-plain-text]'],
+  /** The box above the message field while replying ("quoted message"). */
+  replyPreview: [
+    'footer [data-testid="quoted-message"]',
+    'footer [aria-label*="uoted"]',
+    'footer [data-icon="x-alt"]',
+    'footer [data-icon="x"]',
+  ],
   /** The ⋮ menu button in the open chat's header. */
   headerMenuButton: [
     '#main header [data-icon="menu"]',
@@ -441,7 +450,9 @@ export async function writeWithMention(
   if (!(await replaceComposerText(composer, before.trimEnd(), doc))) return finish(false, 'write-before');
   await selectRange(caretAtEnd(composer, doc), composer, doc);
   observer.observe(doc.body, { childList: true, subtree: true });
-  doc.execCommand('insertText', false, ` @${normalizeText(who.label).replace(/^@/, '')}`);
+  // Type the first word only, as people do: the list then shows everyone it
+  // could be, and the full name picks the one entry (never a guess).
+  doc.execCommand('insertText', false, ` @${normalizeText(who.label).replace(/^@/, '').split(' ')[0]}`);
 
   let option: HTMLElement | null = null;
   for (let i = 0; i < 30 && !option; i++) {
@@ -544,4 +555,80 @@ export function readChatContact(doc: Document = document): ChatContact | null {
   if (id?.endsWith('@g.us')) return { kind: 'group', chatKey: `jid:${id}`, title: title ?? 'this group' };
   if (!title && !id) return null;
   return { kind: 'contact', id, name: title ?? id! };
+}
+
+// ── Replies ──
+
+/** Who wrote a message, read from its row. */
+export interface MessageAuthor {
+  name: string | null;
+  /** The author's contact id; in groups it ends the row's data-id. */
+  id: string | null;
+  /** The message is the person's own. */
+  fromMe: boolean;
+}
+
+/** The message row an event happened in, if any. */
+export function messageRowOf(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const row = target.closest('[data-id]') as HTMLElement | null;
+  return row && /^(true|false)_/.test(row.getAttribute('data-id') ?? '') ? row : null;
+}
+
+/**
+ * The author of a message row: `{fromMe}_{chatId}_{messageId}[_{authorId}]`
+ * in data-id, and "[time, date] Author: " in data-pre-plain-text.
+ */
+export function readMessageAuthor(row: Element): MessageAuthor {
+  const dataId = row.getAttribute('data-id') ?? '';
+  const parts = dataId.split('_');
+  const fromMe = parts[0] === 'true';
+  const last = parts.length >= 4 ? parts[parts.length - 1] : '';
+  const id = CONTACT_ID.test(last) ? CONTACT_ID.exec(last)![1] : null;
+  const meta = row.matches(SELECTORS.messageMeta.join(',')) ? row : row.querySelector(SELECTORS.messageMeta.join(','));
+  const pre = meta?.getAttribute('data-pre-plain-text') ?? '';
+  const name = normalizeText(/^\[[^\]]*\]\s*(.+?):\s*$/.exec(pre)?.[1] ?? '') || null;
+  return { name, id, fromMe };
+}
+
+/** The texts WhatsApp shows in the footer outside the message box: the reply preview, when replying. */
+function footerTextsOutsideComposer(doc: Document): string[] {
+  const footer = doc.querySelector('#main footer') ?? doc.querySelector('footer');
+  const composer = findComposer(doc);
+  if (!footer) return [];
+  const texts: string[] = [];
+  const walker = doc.createTreeWalker(footer, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (composer?.contains(node)) continue;
+    const text = normalizeText(node.nodeValue ?? '');
+    if (text) texts.push(text);
+  }
+  return texts;
+}
+
+/** True while the footer shows a reply preview. */
+export function isReplying(doc: Document = document): boolean {
+  const known = SELECTORS.replyPreview.some(selector => doc.querySelector(selector));
+  return known;
+}
+
+/**
+ * The author being replied to, when a reply is open and it names the author of
+ * `row` (the message the person last acted on). Both must agree: a reply that
+ * was closed, or one started from somewhere else, gives null.
+ */
+export function replyAuthor(row: Element | null, doc: Document = document): MessageAuthor | null {
+  if (!row || !row.isConnected) return null;
+  const author = readMessageAuthor(row);
+  const texts = footerTextsOutsideComposer(doc).map(t => t.toLowerCase());
+  if (texts.length === 0) return null;
+  if (author.fromMe) {
+    // Own messages: WhatsApp labels the preview "You"; the person's own name may not be on the row.
+    return isReplying(doc) || texts.some(t => /^(you|tú|tu|vos|você)$/.test(t)) ? author : null;
+  }
+  if (!author.name) return null;
+  // The name line of the preview is a text of its own. Matching the name inside
+  // other text (the quoted message saying "Ana is great") would pay the wrong person.
+  const name = author.name.toLowerCase();
+  return texts.includes(name) ? author : null;
 }

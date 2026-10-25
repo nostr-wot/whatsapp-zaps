@@ -15,7 +15,7 @@ import type { MappingStore } from '../domain/mappings.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
-  findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
+  replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
   sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
 import { recordDiagnostic } from '../services/diagnostics.ts';
@@ -48,6 +48,7 @@ function orphaned(): boolean {
 }
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
+import { installReplyTracker } from '../whatsapp/replies.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
@@ -94,6 +95,8 @@ if (isExtensionAlive()) void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PRE
 });
 
 let busy = false;
+const replies = installReplyTracker();
+uninstallers.push(replies.uninstall);
 const dialog = new ZapDialog({
   onClosed: () => { busy = false; },
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
@@ -109,6 +112,7 @@ uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
     contact: contact?.kind === 'contact' ? { label: contact.name, id: contact.id } : null,
     // Certain only with a chat id: a group id, or a person's. Without one, unknown.
     isGroup: contact?.kind === 'group' ? true : contact?.kind === 'contact' && contact.id ? false : null,
+    replyTo: replyAuthor(replies.lastRow()),
   };
   void runZap(text, mentions, chat, {
     ui: dialog,

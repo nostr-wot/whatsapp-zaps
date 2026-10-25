@@ -127,10 +127,39 @@ describe('runZap', () => {
     assert.ok(known.log.includes('post:⚡ Zapped Fierillo 10 sats'));
   });
 
+  it('replying in a group zaps the author of that message, with a mention', async () => {
+    const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:7@c.us', 'Fierillo', 'f@w.example') });
+    const chat = { ...CHAT, isGroup: true, replyTo: { name: 'Fierillo', id: '7@c.us', fromMe: false } };
+    assert.equal(await runZap('/zap 10 great point', [], chat, deps), 'paid');
+    assert.ok(log.includes('confirm:f@w.example:10:great point'));
+    assert.ok(log.includes('post:⚡ Zapped @Fierillo 10 sats — great point [mention]'));
+  });
+
+  it('a mention in the command wins over the reply', async () => {
+    const { deps, log } = setup({ store: known });
+    const chat = { ...CHAT, isGroup: true, replyTo: { name: 'Fierillo', id: '7@c.us', fromMe: false } };
+    await runZap('/zap @Alice 5', [], chat, deps);
+    assert.ok(log.includes('confirm:alice@w.example:5:'));
+  });
+
+  it('refuses to zap one’s own message', async () => {
+    const { deps, log } = setup({ store: known });
+    const chat = { ...CHAT, isGroup: true, replyTo: { name: 'Me', id: null, fromMe: true } };
+    assert.equal(await runZap('/zap 5', [], chat, deps), 'invalid');
+    assert.match(log[0], /^error:That is your own message/);
+  });
+
+  it('in a private chat, a reply changes nothing: the other person is paid', async () => {
+    const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:54911@c.us', 'Ana', 'ana@w.example') });
+    const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' }, isGroup: false, replyTo: { name: 'Me', id: null, fromMe: true } };
+    assert.equal(await runZap('/zap 5', [], chat, deps), 'paid');
+    assert.ok(log.includes('post:⚡ Zapped you 5 sats'));
+  });
+
   it('asks for a mention when no one is named in a known group', async () => {
     const { deps, log } = setup({ store: known });
     assert.equal(await runZap('/zap 21', [], { ...CHAT, isGroup: true }, deps), 'invalid');
-    assert.match(log[0], /^error:This is a group, so say who to zap/);
+    assert.match(log[0], /^error:This is a group: reply to their message with \/zap amount, or mention them/);
   });
 
   it('when the chat kind could not be told, pays whoever the header names', async () => {

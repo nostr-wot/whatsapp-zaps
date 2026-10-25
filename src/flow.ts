@@ -103,6 +103,8 @@ export interface ChatContext {
   contact?: Mention | null;
   /** True only when the chat is known to be a group; null when it could not be told. */
   isGroup?: boolean | null;
+  /** The author of the message being replied to, when a reply is open. */
+  replyTo?: { name: string | null; id: string | null; fromMe: boolean } | null;
 }
 
 function chatKind(chat: ChatContext): ChatKind {
@@ -169,14 +171,25 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
   // A mention picked from WhatsApp's list only exists in groups: trust it over
   // the page-based guess, which can fail on WhatsApp's real markup.
   const kind: ChatKind = parsed.command.recipientPicked ? 'group' : detected;
-  // No mention: pay the person the chat is with. Only a chat known to be a
-  // group needs a name; when the kind could not be told, it is taken as a
-  // private chat with whoever the header names.
+  // Who is paid, in order: someone mentioned in the command; the author of the
+  // message being replied to; in a private chat (or one that could not be told
+  // apart), the person the chat is with. Only a group needs one of the first two.
+  const reply = kind === 'private' ? null : chat.replyTo ?? null;
+  if (!parsed.command.recipient && reply?.fromMe) {
+    await deps.ui.showError('That is your own message. Reply to someone else’s message, or mention them: /zap @name amount');
+    deps.ui.close();
+    return 'invalid';
+  }
+  const replyRecipient: Mention | null = reply && (reply.name || reply.id)
+    ? { label: reply.name ?? reply.id!.replace(/@.*/, ''), id: reply.id }
+    : null;
+  const source = parsed.command.recipient ? 'command' : replyRecipient ? 'reply' : 'chat';
   const recipient = parsed.command.recipient
+    ?? replyRecipient
     ?? chat.contact
     ?? (kind === 'group' ? null : { label: chat.chatTitle ?? 'this contact', id: null });
   if (!recipient) {
-    await deps.ui.showError('This is a group, so say who to zap: /zap @name amount');
+    await deps.ui.showError('This is a group: reply to their message with /zap amount, or mention them: /zap @name amount');
     deps.ui.close();
     return 'invalid';
   }
@@ -189,11 +202,13 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      // - no one named: "Zapped you", the person this private chat is with;
+      // - paying the person the chat is with: "Zapped you";
       // - a picked mention: kept as the real mention, whatever the page guess says;
-      // - a typed name: plain text in a chat known to be private (WhatsApp has no
-      //   mentions there), otherwise a mention made through WhatsApp's list.
-      chatMessage: parsed.command.recipient === null
+      // - a typed name or a reply's author: plain text in a chat known to be
+      //   private (WhatsApp has no mentions there), otherwise a mention made
+      //   through WhatsApp's list. Sent while the reply is open, the message
+      //   also goes out as a reply to their message.
+      chatMessage: source === 'chat'
         ? zapChatMessage(null, amountSats, comment)
         : kind === 'private'
           ? { text: zapMessage(recipient.label, amountSats, comment) }

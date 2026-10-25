@@ -41,8 +41,8 @@ export type ChatKind = 'private' | 'group' | 'unknown';
 
 const USAGE: Record<ChatKind, string> = {
   private: 'Usage: /zap amount [comment] — for example /zap 1000 thanks',
-  group: 'Usage: /zap @name amount [comment]',
-  unknown: 'Usage: /zap amount [comment] in a private chat, or /zap @name amount in a group',
+  group: 'Usage: reply to their message with /zap amount [comment], or /zap @name amount [comment]',
+  unknown: 'Usage: /zap amount [comment] in a private chat; in a group, reply to their message with /zap amount, or /zap @name amount',
 };
 
 // WhatsApp wraps mentions in bidi isolates and sprinkles zero-width marks.

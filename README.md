@@ -8,6 +8,7 @@ treats the chat as private and pays whoever the chat header names.
 
 ```
 /zap 1000                      ← in a private chat: pays the person you are chatting with
+/zap 1000                      ← in a group, while replying to a message: pays its author
 /zap @Alice 1000               ← in a group: name who to pay
 /zap @Ana Paula 21k gracias por el almuerzo
 /zap 1,000 @Bob
@@ -16,6 +17,18 @@ treats the chat as private and pays whoever the chat header names.
 While the message box holds a `/zap` command, its text turns WhatsApp green and
 bold, so it is clearly a payment and not a message. The command itself is never
 sent.
+
+### Replying to a message
+
+In a group, reply to someone's message and type `/zap 100` — no mention
+needed: the author of that message is paid. The extension notes which message
+you acted on to start the reply, and reads its author from WhatsApp's message
+attributes (`data-id` holds their contact id, `data-pre-plain-text` their
+name). It only uses them while the reply box above the message field is open
+and shows that same name; a closed reply, or a reply to someone else, is not
+used. Replying to your own message is refused. A mention in the command wins
+over the reply. The ⚡ message is sent while the reply is open, so it goes out
+as a reply to their message.
 
 ### After paying
 
