@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp-zaps",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Send Lightning zaps from WhatsApp Web with /zap, paid through the Nostr WoT extension's WebLN wallet.",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@scure/base": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.37",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^25.3.3",
+    "esbuild": "^0.28.2",
+    "jsdom": "30.0.1",
+    "playwright": "^1.63.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}

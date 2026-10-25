@@ -1,0 +1,148 @@
+/**
+ * `/zap` command parsing.
+ *
+ * Accepted forms:
+ *   /zap @Alice 1000
+ *   /zap @Alice Smith 21k thanks for lunch
+ *   /zap 1,000 @Alice
+ *
+ * The recipient comes from a WhatsApp mention when the user picked one from
+ * the mention list (it carries the contact id), and from plain `@name` text
+ * otherwise. Names may contain spaces, so a typed name runs until the amount.
+ */
+import { MAX_COMMENT_LENGTH, MAX_ZAP_SATS } from '../constants.ts';
+
+/** A mention as read from the composer. `label` excludes the leading `@`. */
+export interface Mention {
+  label: string;
+  /** WhatsApp contact id (e.g. `5491100000000@c.us`) when the DOM exposes it. */
+  id: string | null;
+}
+
+export interface ZapCommand {
+  recipient: Mention;
+  amountSats: number;
+  comment: string;
+}
+
+export type ParseResult =
+  | { ok: true; command: ZapCommand }
+  | { ok: false; error: string };
+
+const USAGE = 'Usage: /zap @name amount [comment]';
+
+// WhatsApp wraps mentions in bidi isolates and sprinkles zero-width marks.
+const INVISIBLES = /[​-‏⁦-⁩﻿]/g;
+
+/** Strip invisible marks and collapse whitespace. */
+export function normalizeText(text: string): string {
+  return text.replace(INVISIBLES, '').replace(/[\s ]+/g, ' ').trim();
+}
+
+/** True when the composer text is a `/zap` command (and must not be sent). */
+export function isZapCommand(text: string): boolean {
+  return /^\/zap(\s|$)/i.test(normalizeText(text));
+}
+
+/**
+ * Parse an amount like `1000`, `21,000`, `21k`, `1.5k` or `2m`.
+ * Returns null when the token is not an amount.
+ */
+export function parseAmount(token: string): number | null {
+  const match = /^(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)([km])?$/i.exec(token);
+  if (!match) return null;
+  const multiplier = match[2] ? (match[2].toLowerCase() === 'k' ? 1_000 : 1_000_000) : 1;
+  // Work in integers so `1.1k` is 1100, not 1100.0000000000002. A result
+  // with a fraction left over (`1.5`) is returned as is for checkAmount to refuse.
+  const [whole, fraction = ''] = match[1].replace(/,/g, '').split('.');
+  const scale = 10 ** fraction.length;
+  return ((Number(whole) * scale + Number(fraction || 0)) * multiplier) / scale;
+}
+
+function checkAmount(amount: number): string | null {
+  if (!Number.isSafeInteger(amount) || amount <= 0) return 'The amount must be a whole number of sats.';
+  if (amount > MAX_ZAP_SATS) return `The amount is above the ${MAX_ZAP_SATS.toLocaleString('en-US')} sat limit for one zap.`;
+  return null;
+}
+
+/**
+ * Take the recipient off the front of `rest` (which starts with `@`).
+ * A picked mention wins; the longest matching label is used so "@Ana" does not
+ * shadow "@Ana Paula".
+ */
+function takeRecipient(rest: string, mentions: Mention[]): { recipient: Mention; rest: string } | null {
+  if (!rest.startsWith('@')) return null;
+  const body = rest.slice(1);
+  const picked = mentions
+    .map(m => ({ ...m, label: normalizeText(m.label).replace(/^@/, '') }))
+    .filter(m => m.label && body.toLowerCase().startsWith(m.label.toLowerCase()))
+    .filter(m => body.length === m.label.length || body[m.label.length] === ' ')
+    .sort((a, b) => b.label.length - a.label.length)[0];
+  if (picked) {
+    return { recipient: { label: body.slice(0, picked.label.length), id: picked.id }, rest: body.slice(picked.label.length).trim() };
+  }
+  return null;
+}
+
+/** Parse composer text into a zap command. */
+export function parseZapCommand(text: string, mentions: Mention[] = []): ParseResult {
+  const normalized = normalizeText(text);
+  if (!isZapCommand(normalized)) return { ok: false, error: USAGE };
+  let rest = normalized.replace(/^\/zap\s*/i, '');
+  if (!rest) return { ok: false, error: USAGE };
+
+  let amount: number | null = null;
+  let recipient: Mention | null = null;
+
+  // `/zap 1000 @Alice …`
+  const leading = rest.split(' ')[0];
+  const leadingAmount = parseAmount(leading);
+  if (leadingAmount !== null) {
+    amount = leadingAmount;
+    rest = rest.slice(leading.length).trim();
+  }
+
+  if (!rest.startsWith('@')) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+
+  const picked = takeRecipient(rest, mentions);
+  if (picked) {
+    recipient = picked.recipient;
+    rest = picked.rest;
+  } else {
+    // Typed name: words up to the amount (or to the end when the amount came first).
+    const words = rest.slice(1).split(' ');
+    const amountAt = amount === null ? words.findIndex((w, i) => i > 0 && parseAmount(w) !== null) : -1;
+    if (amount === null && amountAt === -1) {
+      if (words.length === 1 && words[0]) return { ok: false, error: `Add an amount. ${USAGE}` };
+      return { ok: false, error: USAGE };
+    }
+    // With the amount first, the name is the first word only: a comment cannot be told apart otherwise.
+    const nameWords = amount === null ? words.slice(0, amountAt) : words.slice(0, 1);
+    const label = nameWords.join(' ');
+    if (!label) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+    recipient = { label, id: null };
+    rest = words.slice(nameWords.length).join(' ');
+  }
+
+  if (amount === null) {
+    const token = rest.split(' ')[0];
+    amount = parseAmount(token);
+    if (amount === null) return { ok: false, error: `Add an amount. ${USAGE}` };
+    rest = rest.slice(token.length).trim();
+  }
+
+  const amountError = checkAmount(amount);
+  if (amountError) return { ok: false, error: amountError };
+
+  const comment = rest.trim();
+  if (comment.length > MAX_COMMENT_LENGTH) {
+    return { ok: false, error: `The comment is longer than ${MAX_COMMENT_LENGTH} characters.` };
+  }
+
+  return { ok: true, command: { recipient, amountSats: amount, comment } };
+}
+
+/** The chat message offered after a successful zap. */
+export function zapMessage(label: string, amountSats: number): string {
+  return `⚡ Zapped @${label} ${amountSats.toLocaleString('en-US')} sats`;
+}

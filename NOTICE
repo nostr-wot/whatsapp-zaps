@@ -1,0 +1,14 @@
+WhatsApp Web Zaps
+
+This extension contains code ported from Nostr WoT
+(https://github.com/nostr-wot/nostr-wot-extension), licensed GPL-3.0-only:
+
+- src/domain/lnurl.ts       from src/domain/wallet/lnurl.ts
+- src/services/lnurl.ts     from src/services/wallet/lnurl.ts
+- src/domain/bolt11.ts      amount rules from src/domain/wallet/bolt11.ts
+- tests/lnurl.test.ts       from tests/wallet/lnurl.test.ts
+
+Keep the LNURL safety checks in step with the upstream copies.
+
+WhatsApp is a trademark of WhatsApp LLC. This project is not affiliated with
+or endorsed by WhatsApp or Meta.
