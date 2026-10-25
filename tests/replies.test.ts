@@ -78,3 +78,65 @@ describe('replyAuthor — only the name line counts', () => {
     assert.equal(replyAuthor(rows()[0]), null);
   });
 });
+
+describe('findReplyTarget — from what the reply box shows', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+
+  const addRow = (dataId: string, author: string, text: string) => {
+    const wrap = document.createElement('div');
+    wrap.setAttribute('role', 'row');
+    wrap.innerHTML = `<div data-id="${dataId}"><div class="copyable-text" data-pre-plain-text="[11:00, 25/10/2026] ${author}: "><span>${text}</span></div></div>`;
+    document.querySelector('.copyable-area')!.append(wrap);
+    return wrap.firstElementChild as HTMLElement;
+  };
+
+  it('finds the message without any click on it (reply opened from a button outside the message)', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    const row = addRow('false_120363000000000000@g.us_C1_5491177@c.us', 'Fierillo', 'bitcoin fixes this');
+    openReply('Fierillo', 'bitcoin fixes this');
+    assert.equal(findReplyTarget(null)?.row, row);
+    assert.deepEqual(replyAuthor(null), { name: 'Fierillo', id: '5491177@c.us', fromMe: false });
+  });
+
+  it('matches a quote that WhatsApp cut short, and the latest of equal messages', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    addRow('false_120363000000000000@g.us_C1_1111111@c.us', 'Bob', 'gm everyone, have a great day');
+    const latest = addRow('false_120363000000000000@g.us_C2_2222222@c.us', 'Bea', 'gm everyone, have a great day');
+    openReply('Bea', 'gm everyone, have a gre');
+    assert.equal(findReplyTarget(null)?.row, latest);
+  });
+
+  it('prefers the message whose author the box names', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    const bob = addRow('false_120363000000000000@g.us_C1_1111111@c.us', 'Bob', 'same words');
+    addRow('false_120363000000000000@g.us_C2_2222222@c.us', 'Bea', 'same words');
+    openReply('Bob', 'same words');
+    assert.equal(findReplyTarget(null)?.row, bob);
+  });
+
+  it('accepts names shown differently: "~ name", phone numbers with spaces', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    const row = addRow('false_120363000000000000@g.us_C1_5491177@c.us', '+54 9 11 7777-1111', 'hola');
+    openReply('+5491177771111', 'hola');
+    assert.equal(findReplyTarget(row)?.row, row);
+    const tilde = addRow('false_120363000000000000@g.us_C3_5491188@c.us', 'Pepe', 'que tal');
+    document.getElementById('reply')!.remove();
+    openReply('~ Pepe', 'que tal');
+    assert.equal(findReplyTarget(null)?.row, tilde);
+  });
+
+  it('is null when nothing on screen fits', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    openReply('Zed', 'a message scrolled out of view');
+    assert.equal(findReplyTarget(null), null);
+  });
+});
+
+describe('findReplyTarget — short messages', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+  it('matches a short message quoted in full, without a click', async () => {
+    const { findReplyTarget } = await import('../src/whatsapp/dom.ts');
+    openReply('Ana Paula', 'hi');
+    assert.equal(findReplyTarget(null)?.row, rows()[0]);
+  });
+});

@@ -413,9 +413,9 @@ try {
     await chrome.storage.local.set({ zapMappings });
   });
   const members = 'Jaqui:5491177@c.us,Bob:5491188@c.us,Bea:5491199@c.us';
+  // Opens a reply the way WhatsApp may: from a button outside the message, so the
+  // message itself is never clicked. The reply box quotes the message's text.
   async function openReply(tab, index) {
-    const row = (await tab.$$('#main [data-id]'))[index];
-    await row.click();
     await tab.evaluate(i => {
       const r = document.querySelectorAll('#main [data-id]')[i];
       const name = /\]\s*(.+?):\s*$/.exec(r.querySelector('[data-pre-plain-text]').getAttribute('data-pre-plain-text'))[1];
@@ -539,6 +539,12 @@ try {
   });
   await react.goto(`https://web.whatsapp.com/?lexical=1&text=${encodeURIComponent('draft stays')}`);
   await react.waitForFunction(() => window.__lexicalReady);
+  // A private chat with Ana Paula, as in the report.
+  await react.evaluate(() => {
+    const rows = document.querySelectorAll('#main [data-id]');
+    rows[0].setAttribute('data-id', 'false_5491100000000@c.us_3EB0AAAA');
+    rows[1].setAttribute('data-id', 'true_5491100000000@c.us_3EB0BBBB');
+  });
   const reactCdp = await context.newCDPSession(react);
   const reactDialog = async pattern => {
     for (let i = 0; i < 100; i++) {
@@ -550,17 +556,26 @@ try {
       if (pattern === null ? text === null : text !== null && pattern.test(text)) return text;
       await new Promise(r => setTimeout(r, 100));
     }
-    throw new Error(`reaction dialog never matched ${pattern}`);
+    const { root } = await reactCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    throw new Error(`reaction dialog never matched ${pattern}; badges: ${await react.$$eval('.reaction-badge', b => b.length)}; sent: ${JSON.stringify(await react.evaluate(() => window.__weblnCalls.length))}`);
   };
+  // React the way WhatsApp may: the picker opens from a button outside the message
+  // (no click on the message), applies the reaction on press and closes, and the
+  // message gets a ⚡ badge.
   const reactWithLightning = async () => {
-    await (await react.$$('#main [data-id]'))[0].click();
-    // WhatsApp's reaction picker floats over the chat, outside the message.
     await react.evaluate(() => {
       document.getElementById('picker')?.remove();
       const picker = document.createElement('div');
       picker.id = 'picker';
       picker.style.cssText = 'position:fixed;top:40px;left:300px;display:flex;gap:8px;font-size:24px';
-      picker.innerHTML = '<span role="button">👍</span><span role="button" id="bolt">⚡</span>';
+      picker.innerHTML = '<span role="button">👍</span><span role="button" id="bolt"><img alt="⚡" width="24" height="24" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></span>';
+      picker.querySelector('#bolt').addEventListener('mousedown', () => {
+        picker.remove();
+        const badge = document.createElement('span');
+        badge.className = 'reaction-badge';
+        badge.innerHTML = '<img alt="⚡" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
+        document.querySelectorAll('#main [data-id]')[0].append(badge);
+      });
       document.body.append(picker);
     });
     await react.click('#bolt');
@@ -568,7 +583,7 @@ try {
   await reactWithLightning();
   const reactConfirm = await reactDialog(/Confirm zap/);
   console.log('reaction confirm:', reactConfirm);
-  assert.match(reactConfirm, /21 sats\s+to Ana Paula.*For your ⚡ reaction/s);
+  assert.match(reactConfirm, /21 sats\s+to (Ana Paula|Friends & Family).*ana@wallet\.example.*For your ⚡ reaction/s);
   assert.doesNotMatch(reactConfirm, /Post in the chat/);
   await react.keyboard.press('Enter');
   const reactResult = await reactDialog(/Zap sent/);

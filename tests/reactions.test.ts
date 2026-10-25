@@ -35,54 +35,125 @@ describe('isLightningEmoji', () => {
 
 describe('installReactionWatcher', () => {
   let reacted: HTMLElement[];
+  let missed: string[];
   let clock: number;
+  const wait = (ms = 80) => new Promise(r => setTimeout(r, ms));
+  /** WhatsApp marks the message reacted to with a ⚡ badge. */
+  const badge = (row: HTMLElement) => { const b = document.createElement('span'); b.innerHTML = '<img alt="⚡" src="data:,">'; row.append(b); };
+
   beforeEach(() => {
     installDom(FIXTURE);
     reacted = [];
+    missed = [];
     clock = 1000;
     const tracker = installReplyTracker();
-    installReactionWatcher(row => reacted.push(row), tracker.lastRow, document, () => true, () => clock);
+    installReactionWatcher(row => reacted.push(row), tracker.lastRow, document, () => true, () => clock, m => missed.push(m.reason), 40);
   });
 
-  it('reports a ⚡ picked right after acting on a message', () => {
+  it('takes the message from the ⚡ badge WhatsApp adds, wherever the picker was opened', async () => {
+    press(picker().img, 'click');
+    badge(rows()[1]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[1]]);
+  });
+
+  it('falls back to the message last acted on when no badge appears', async () => {
     press(rows()[0]);
     press(picker().img, 'click');
+    await wait();
     assert.deepEqual(reacted, [rows()[0]]);
   });
 
-  it('ignores ⚡ in the emoji panel used while typing', () => {
+  it('works when the picker reacts on press and closes before any click', async () => {
+    const p = picker();
+    press(p.text, 'mousedown');
+    p.text.closest('div')!.parentElement!.remove();
+    badge(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0]]);
+  });
+
+  it('acts once per gesture (pointerdown, mousedown and click)', async () => {
+    const p = picker();
+    for (const type of ['pointerdown', 'mousedown', 'click']) press(p.img, type);
+    badge(rows()[0]);
+    await wait();
+    assert.equal(reacted.length, 1);
+  });
+
+  it('a second press soon after is a new reaction, not part of the first', async () => {
+    const p = picker();
+    press(p.img, 'pointerdown');
+    badge(rows()[0]);
+    await wait();
+    press(p.img, 'pointerdown');
+    badge(rows()[1]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0], rows()[1]]);
+  });
+
+  it('recognises ⚡ by its name in a label', async () => {
+    const b = document.createElement('div');
+    b.setAttribute('role', 'button');
+    b.setAttribute('aria-label', 'High voltage');
+    document.body.append(b);
+    press(b, 'click');
+    badge(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0]]);
+  });
+
+  it('a badge counts even after typing, and with no message clicked (the reported case)', async () => {
+    const typed = document.querySelector('footer [contenteditable="true"]')!;
+    press(typed);
+    press(picker().img, 'click');
+    badge(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0]]);
+  });
+
+  it('ignores ⚡ in the emoji panel used while typing', async () => {
     press(rows()[0]);
     const panel = document.createElement('div');
     panel.innerHTML = '<span>⚡</span>';
     document.querySelector('footer')!.append(panel);
     press(panel.querySelector('span')!);
     press(panel.querySelector('span')!, 'click');
-    const p = picker();
-    press(p.text, 'click');
+    await wait();
+    press(picker().text, 'click');
+    await wait();
     assert.deepEqual(reacted, [], 'typing happened after the message was acted on');
+    assert.ok(missed.includes('no badge, and typing happened since the message was acted on'));
   });
 
-  it('ignores an existing ⚡ reaction badge on a message', () => {
-    const badge = document.createElement('span');
-    badge.textContent = '⚡';
-    rows()[0].append(badge);
-    press(badge);
-    press(badge, 'click');
+  it('ignores an existing ⚡ reaction badge on a message', async () => {
+    const b = document.createElement('span');
+    b.textContent = '⚡';
+    rows()[0].append(b);
+    press(b);
+    press(b, 'click');
+    await wait();
     assert.deepEqual(reacted, []);
   });
 
-  it('ignores ⚡ without a recent message, or long after', () => {
+  it('records a ⚡ it cannot tie to a message', async () => {
     press(picker().img, 'click');
-    assert.deepEqual(reacted, [], 'no message acted on');
+    await wait();
+    assert.deepEqual(reacted, []);
+    assert.deepEqual(missed, ['no badge, and no message acted on']);
     press(rows()[0]);
     clock += 61_000;
     press(picker().img, 'click');
+    await wait();
     assert.deepEqual(reacted, [], 'too long ago');
+    assert.equal(missed.length, 2);
   });
 
-  it('ignores other reactions', () => {
+  it('ignores other reactions', async () => {
     press(rows()[0]);
     press(picker().thumbs, 'click');
+    badge(rows()[0]);
+    await wait();
     assert.deepEqual(reacted, []);
   });
 });

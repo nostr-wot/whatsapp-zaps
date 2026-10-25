@@ -21,12 +21,13 @@ sent.
 ### Replying to a message
 
 In a group, reply to someone's message and type `/zap 100` — no mention
-needed: the author of that message is paid. The extension notes which message
-you acted on to start the reply, and reads its author from WhatsApp's message
-attributes (`data-id` holds their contact id, `data-pre-plain-text` their
-name). It only uses them while the reply box above the message field is open
-and shows that same name; a closed reply, or a reply to someone else, is not
-used. Replying to your own message is refused. A mention in the command wins
+needed: the author of that message is paid. The message is found from what
+the reply box above the message field shows, not from how the reply was opened:
+the message on screen whose text the box quotes. A short quote ("hi") only
+counts together with the author's name in the box; names compare loosely
+(`~ name`, phone numbers with or without spaces). The author comes from
+WhatsApp's message attributes (`data-id` holds their contact id,
+`data-pre-plain-text` their name). With no reply box open, nothing is used. Replying to your own message is refused. A mention in the command wins
 over the reply. The ⚡ message is sent while the reply is open, so it goes out
 as a reply to their message.
 
@@ -40,9 +41,12 @@ message and never touches the message box, so a draft you are typing stays as
 it is. Reactions to your own messages are ignored, and reacting with ⚡ to the
 same message again asks before paying again.
 
-The ⚡ is recognised by the emoji itself (its text, or an image's alt text) in
-a picker opened from a message; ⚡ in the emoji panel used while typing, an
-existing reaction badge, or text inside messages does not count.
+The ⚡ is recognised by the emoji itself (its text, an image's alt text, or a
+label naming it), on press, since a picker may close before any click. The
+message is the one WhatsApp then marks with a ⚡ reaction badge; without a
+badge, the message last clicked is used if recent. ⚡ in the emoji panel used
+while typing, an existing reaction badge, or text inside messages does not
+count. A ⚡ that cannot be tied to a message leaves a diagnostic.
 
 ### After paying
 

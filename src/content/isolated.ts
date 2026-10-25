@@ -15,7 +15,7 @@ import type { MappingStore } from '../domain/mappings.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
-  readMessageAuthor, replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
+  footerTextsOutsideComposer, readMessageAuthor, replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
   sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
 import { recordDiagnostic } from '../services/diagnostics.ts';
@@ -195,7 +195,18 @@ function zapDeps(composer: HTMLElement | null): ZapDeps {
 uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
   if (orphaned()) return;
   busy = true;
-  void runZap(text, mentions, chatContext(), zapDeps(composer)).finally(() => { busy = false; });
+  const chat = chatContext();
+  // A group zap with no mention relies on the reply: if a reply box seems open
+  // but no message on screen fits it, keep what the page showed for diagnostics.
+  if (!chat.replyTo && chat.isGroup !== false && mentions.length === 0 && !/@/.test(text)) {
+    const footer = document.querySelector('#main footer') ?? document.querySelector('footer');
+    void recordDiagnostic('reply not tied to a message', {
+      'texts around the message box': footerTextsOutsideComposer().join(' | ') || '(none)',
+      'footer': footer?.outerHTML.slice(0, 15_000) ?? '(no footer)',
+      'last message rows': [...document.querySelectorAll('#main [data-id]')].slice(-3).map(el => el.outerHTML.slice(0, 3000)).join('\n') || '(no [data-id] rows)',
+    });
+  }
+  void runZap(text, mentions, chat, zapDeps(composer)).finally(() => { busy = false; });
 }, () => busy, document, current));
 
 // ⚡ reaction to a message: zap its author.
@@ -207,7 +218,13 @@ const reactions = installReactionWatcher(row => {
   void reactionAmount()
     .then(amount => runReactionZap({ ...author, messageId: row.getAttribute('data-id') ?? '' }, amount, chatContext(), zapDeps(null)))
     .finally(() => { busy = false; });
-}, replies.lastRow, document, current);
+}, replies.lastRow, document, current, Date.now, missed => {
+  void recordDiagnostic(`⚡ reaction not tied to a message: ${missed.reason}`, {
+    'reaction picker': missed.pickerHtml,
+    'chat as detected': JSON.stringify({ chatKey: readChatKey(), title: readChatTitle(), contact: readChatContact() }),
+    'first message rows': [...document.querySelectorAll('#main [data-id]')].slice(0, 3).map(el => el.outerHTML.slice(0, 3000)).join('\n') || '(no [data-id] rows)',
+  });
+});
 uninstallers.push(reactions.uninstall);
 
 // "⚡ Nostr profile" in the chat header's ⋮ menu.

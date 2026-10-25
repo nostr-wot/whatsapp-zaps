@@ -592,7 +592,7 @@ export function readMessageAuthor(row: Element): MessageAuthor {
 }
 
 /** The texts WhatsApp shows in the footer outside the message box: the reply preview, when replying. */
-function footerTextsOutsideComposer(doc: Document): string[] {
+export function footerTextsOutsideComposer(doc: Document = document): string[] {
   const footer = doc.querySelector('#main footer') ?? doc.querySelector('footer');
   const composer = findComposer(doc);
   if (!footer) return [];
@@ -612,23 +612,64 @@ export function isReplying(doc: Document = document): boolean {
   return known;
 }
 
+/** A name as compared: no "~", no case, digits only for phone numbers. */
+function comparableName(name: string): string {
+  const plain = normalizeText(name).replace(/^~\s*/, '').toLowerCase();
+  const digits = plain.replace(/[\s()+\-.]/g, '');
+  return /^\d{6,}$/.test(digits) ? digits : plain;
+}
+
+/** The text of a message row, without its author line or time. */
+function messageText(row: Element): string {
+  const meta = row.matches(SELECTORS.messageMeta.join(',')) ? row : row.querySelector(SELECTORS.messageMeta.join(','));
+  return normalizeText((meta ?? row).textContent ?? '');
+}
+
+/** The message being replied to, and how sure the match is. */
+export interface ReplyTarget {
+  row: HTMLElement;
+  author: MessageAuthor;
+}
+
 /**
- * The author being replied to, when a reply is open and it names the author of
- * `row` (the message the person last acted on). Both must agree: a reply that
- * was closed, or one started from somewhere else, gives null.
+ * The message being replied to, found from what the reply box shows rather
+ * than from how it was opened (WhatsApp's reply buttons may sit outside the
+ * message): the message whose text the box quotes. A message whose author the
+ * box also names wins; the one last acted on is preferred; otherwise the
+ * latest. Returns null when no reply box is open or nothing on screen fits.
  */
-export function replyAuthor(row: Element | null, doc: Document = document): MessageAuthor | null {
-  if (!row || !row.isConnected) return null;
-  const author = readMessageAuthor(row);
-  const texts = footerTextsOutsideComposer(doc).map(t => t.toLowerCase());
+export function findReplyTarget(lastRow: Element | null, doc: Document = document): ReplyTarget | null {
+  const texts = footerTextsOutsideComposer(doc);
   if (texts.length === 0) return null;
-  if (author.fromMe) {
-    // Own messages: WhatsApp labels the preview "You"; the person's own name may not be on the row.
-    return isReplying(doc) || texts.some(t => /^(you|tú|tu|vos|você)$/.test(t)) ? author : null;
-  }
-  if (!author.name) return null;
-  // The name line of the preview is a text of its own. Matching the name inside
-  // other text (the quoted message saying "Ana is great") would pay the wrong person.
-  const name = author.name.toLowerCase();
-  return texts.includes(name) ? author : null;
+  const names = new Set(texts.map(comparableName));
+  const quoted = texts.filter(t => t.length >= 3);
+  const rows = [...doc.querySelectorAll<HTMLElement>(SELECTORS.messageRow.join(','))]
+    .filter(r => /^(true|false)_/.test(r.getAttribute('data-id') ?? ''));
+  const scored = rows.map((row, index) => {
+    const author = readMessageAuthor(row);
+    const body = messageText(row).toLowerCase();
+    // The box quotes the message, often cut short. A short message ("hi") only
+    // matches exactly, never inside some longer text.
+    const quotes = !!body && (texts.some(t => t.toLowerCase() === body)
+      || quoted.some(t => body.includes(t.toLowerCase()) || (body.length >= 3 && t.toLowerCase().includes(body))));
+    // A long quote is distinctive on its own; a short one ("hi", "ok") is only
+    // trusted together with the author's name.
+    const distinctive = quotes && body.length >= 12;
+    const named = author.fromMe
+      ? [...names].some(n => /^(you|tú|tu|vos|você)$/.test(n))
+      : !!author.name && names.has(comparableName(author.name));
+    return { row, author, index, quotes, named, distinctive };
+  });
+  const best = scored
+    .filter(c => (c.quotes && c.named) || c.distinctive || (c.named && c.row === lastRow))
+    .sort((a, b) => Number(b.quotes && b.named) - Number(a.quotes && a.named)
+      || Number(b.row === lastRow) - Number(a.row === lastRow)
+      || Number(b.named) - Number(a.named)
+      || b.index - a.index)[0];
+  return best ? { row: best.row, author: best.author } : null;
+}
+
+/** The author of the message being replied to (see findReplyTarget), or null. */
+export function replyAuthor(row: Element | null, doc: Document = document): MessageAuthor | null {
+  return findReplyTarget(row, doc)?.author ?? null;
 }
