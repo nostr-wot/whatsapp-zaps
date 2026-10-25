@@ -50,7 +50,7 @@ import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../const
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installReplyTracker } from '../whatsapp/replies.ts';
 import { installReactionWatcher } from '../whatsapp/reactions.ts';
-import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY } from '../constants.ts';
+import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY, TRACE_REACTIONS_UNTIL_KEY } from '../constants.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
@@ -224,8 +224,22 @@ const reactions = installReactionWatcher(row => {
     'chat as detected': JSON.stringify({ chatKey: readChatKey(), title: readChatTitle(), contact: readChatContact() }),
     'first message rows': [...document.querySelectorAll('#main [data-id]')].slice(0, 3).map(el => el.outerHTML.slice(0, 3000)).join('\n') || '(no [data-id] rows)',
   });
-});
+}, undefined, (what, html) => traceReaction(what, html));
 uninstallers.push(reactions.uninstall);
+
+// Troubleshooting (Settings → "Record reaction clicks"): for ten minutes, keep
+// the markup of clicks outside the chat and of what appears inside messages.
+let traceUntil = 0;
+if (isExtensionAlive()) {
+  void chrome.storage.local.get(TRACE_REACTIONS_UNTIL_KEY).then(s => { traceUntil = Number(s[TRACE_REACTIONS_UNTIL_KEY]) || 0; });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && TRACE_REACTIONS_UNTIL_KEY in changes) traceUntil = Number(changes[TRACE_REACTIONS_UNTIL_KEY].newValue) || 0;
+  });
+}
+function traceReaction(what: string, html: string) {
+  if (Date.now() > traceUntil) return;
+  void recordDiagnostic(`reaction trace: ${what}`, { html });
+}
 
 // "⚡ Nostr profile" in the chat header's ⋮ menu.
 uninstallers.push(installMenuItem(() => {

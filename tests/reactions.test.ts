@@ -152,8 +152,46 @@ describe('installReactionWatcher', () => {
   it('ignores other reactions', async () => {
     press(rows()[0]);
     press(picker().thumbs, 'click');
-    badge(rows()[0]);
+    const b = document.createElement('span');
+    b.textContent = '👍';
+    rows()[0].append(b);
     await wait();
     assert.deepEqual(reacted, []);
+  });
+
+  it('takes a new ⚡ badge right after a click as the reaction, even when the ⚡ press was not recognised', async () => {
+    // A picker that draws emoji as sprites, with nothing naming them.
+    const sprite = document.createElement('div');
+    sprite.innerHTML = '<span class="emoji-sprite" style="background-position: -40px -80px"></span>';
+    document.body.append(sprite);
+    press(sprite.firstElementChild!);
+    badge(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0]]);
+  });
+
+  it('a ⚡ badge counts only on a message that was on screen, and did not already have one', async () => {
+    badge(rows()[1]);
+    press(document.body);
+    // Scrolling brings in a message that already carries ⚡.
+    const wrap = document.createElement('div');
+    wrap.innerHTML = '<div data-id="false_120363000000000000@g.us_OLD_1@c.us"><div data-pre-plain-text="[9:00, 1/1/2026] Old: "><span>old</span></div><span><img alt="⚡" src="data:,"></span></div>';
+    document.querySelector('.copyable-area')!.append(wrap);
+    // Re-rendering an existing badge does not add one.
+    rows()[1].querySelector('img')!.replaceWith(Object.assign(document.createElement('img'), { alt: '⚡' }));
+    await wait();
+    assert.deepEqual(reacted, []);
+  });
+
+  it('a ⚡ in the message text is not a badge, nor is one long after the click', async () => {
+    press(document.body);
+    const text = rows()[0].querySelector('[data-pre-plain-text]')!;
+    text.append(Object.assign(document.createElement('img'), { alt: '⚡' }));
+    await wait();
+    assert.deepEqual(reacted, []);
+    clock += 5_000;
+    badge(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [], 'too long after the click');
   });
 });

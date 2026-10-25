@@ -4,6 +4,7 @@
  */
 import {
   DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
+  TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY,
 } from '../constants.ts';
 import {
   normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore,
@@ -318,6 +319,17 @@ $('copy-diagnostics').addEventListener('click', async () => {
   }
 });
 
+async function renderTrace() {
+  const until = Number((await chrome.storage.local.get(TRACE_REACTIONS_UNTIL_KEY))[TRACE_REACTIONS_UNTIL_KEY]) || 0;
+  $<HTMLInputElement>('trace-reactions').checked = until > Date.now();
+}
+
+$<HTMLInputElement>('trace-reactions').addEventListener('change', async event => {
+  const on = (event.currentTarget as HTMLInputElement).checked;
+  await chrome.storage.local.set({ [TRACE_REACTIONS_UNTIL_KEY]: on ? Date.now() + TRACE_REACTIONS_MS : 0 });
+  setStatus(on ? 'Recording for 10 minutes. Reload WhatsApp, react with ⚡ once, then copy the diagnostics.' : 'Stopped recording.');
+});
+
 $('clear-diagnostics').addEventListener('click', async () => {
   await clearDiagnostics();
   setStatus('Diagnostics cleared.');
@@ -330,8 +342,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (MAPPINGS_STORAGE_KEY in changes) void render();
   if (DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
+void renderTrace();
 });
 
 void render();
 void renderSettings();
 void renderDiagnosticsCount();
+void renderTrace();

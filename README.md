@@ -48,6 +48,18 @@ badge, the message last clicked is used if recent. ⚡ in the emoji panel used
 while typing, an existing reaction badge, or text inside messages does not
 count. A ⚡ that cannot be tied to a message leaves a diagnostic.
 
+When the ⚡ in WhatsApp's picker cannot be recognised at all (emoji drawn as
+images with no name), the reaction is still noticed by its result: a message
+that gains a ⚡ badge within four seconds of a click. Only messages that were
+on screen at the click and had no ⚡ before count, so scrolling or someone
+else's old reactions do not trigger it; the confirm screen comes first either
+way.
+
+If reactions still do nothing, tick **Record reaction clicks** under
+Troubleshooting, reload WhatsApp, react with ⚡ once, and use **Copy
+diagnostics**: it holds the markup of what was clicked and of what appeared in
+the message, which is what is needed to support WhatsApp's real picker.
+
 ### After paying
 
 The confirm screen has **Post in the chat once the payment is confirmed**,

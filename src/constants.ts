@@ -32,7 +32,12 @@ export const POST_PREFERENCE_KEY = 'postZapMessage';
 /** Local diagnostics about mentions and the message box (see services/diagnostics.ts). */
 export const DIAGNOSTICS_KEY = 'diagnostics';
 
-export const MAX_DIAGNOSTICS = 5;
+export const MAX_DIAGNOSTICS = 25;
+
+/** Troubleshooting: record reaction clicks until this time (ms epoch). */
+export const TRACE_REACTIONS_UNTIL_KEY = 'traceReactionsUntil';
+
+export const TRACE_REACTIONS_MS = 10 * 60_000;
 
 /** How long the same command in the same chat asks before being paid again. */
 export const REPEAT_WINDOW_MS = 30 * 60_000;

@@ -601,6 +601,39 @@ try {
   assert.equal((await react.evaluate(() => window.__weblnCalls)).length, 1, 'no second payment');
   await react.close();
 
+  // 18. A picker whose emoji are unlabeled sprites: the ⚡ press is not recognisable,
+  //     but the ⚡ badge WhatsApp then adds to the message still leads to the zap.
+  const sprite = await context.newPage();
+  await sprite.addInitScript(() => { window.webln = { enabled: true, async enable() {}, async sendPayment() { return { preimage: 'bb'.repeat(32) }; } }; });
+  await sprite.goto(`https://web.whatsapp.com/?lexical=1`);
+  await sprite.waitForFunction(() => window.__lexicalReady);
+  await sprite.evaluate(() => {
+    const rows = document.querySelectorAll('#main [data-id]');
+    rows[0].setAttribute('data-id', 'false_5491100000000@c.us_3EB0SPRITE');
+    const picker = document.createElement('div');
+    picker.style.cssText = 'position:fixed;top:40px;left:300px;width:30px;height:30px';
+    picker.innerHTML = '<div role="button" id="sprite" style="width:30px;height:30px;background:#fc0"></div>';
+    picker.querySelector('#sprite').addEventListener('mousedown', () => {
+      picker.remove();
+      const badge = document.createElement('span');
+      badge.innerHTML = '<img alt="⚡" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
+      rows[0].append(badge);
+    });
+    document.body.append(picker);
+  });
+  await sprite.click('#sprite');
+  const spriteCdp = await context.newCDPSession(sprite);
+  let spriteText = null;
+  for (let i = 0; i < 50 && !(spriteText && /Confirm zap/.test(spriteText)); i++) {
+    const { root } = await spriteCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); spriteText = out.join(' '); }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('sprite picker:', (spriteText ?? '').slice(0, 90));
+  assert.match(spriteText ?? '', /Confirm zap.*21 sats.*For your ⚡ reaction/s);
+  await sprite.close();
+
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();
   await toolbar.setViewportSize({ width: 400, height: 600 });

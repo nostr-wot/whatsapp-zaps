@@ -9,6 +9,10 @@
  * - The message is the one that then gets a ⚡ reaction badge: WhatsApp adds
  *   one to the message reacted to. When no badge appears (unknown markup),
  *   the message last acted on is used, if recent and still on screen.
+ * - When the ⚡ press itself is not recognised (a picker drawing emoji as
+ *   sprites), a message that gains a ⚡ badge within seconds of a click is
+ *   still taken as the person's reaction. Messages that already had ⚡, or
+ *   were not on screen at the click (scrolling), do not count.
  * Clicks that are not reactions are left alone: the emoji panel used while
  * typing (in the footer), existing badges and text inside messages, and this
  * extension's own dialog.
@@ -24,35 +28,70 @@ const REACTION_WINDOW_MS = 60_000;
 /** How long to wait for WhatsApp to put the ⚡ badge on the message. */
 const BADGE_WAIT_MS = 1_500;
 
-/** True when `el` (or a close ancestor) shows nothing but the ⚡ emoji. */
+/** A ⚡ badge appearing this soon after a click counts as the person's reaction. */
+const BADGE_AFTER_CLICK_MS = 4_000;
+
+const LIGHTNING_CODE = /(^|[^0-9a-f])26a1([^0-9a-f]|$)/i;
+
+/**
+ * True when `el` (or a close ancestor) is the ⚡ emoji: shown as text, an
+ * image's alt text, a short label holding or naming it, or an emoji image
+ * named by its code point (…/26a1.png).
+ */
 export function isLightningEmoji(el: Element | null): boolean {
   for (let node = el, depth = 0; node && depth < 3; node = node.parentElement, depth++) {
-    const values = ['alt', 'data-emoji', 'data-plain-text', 'aria-label', 'title'].map(a => (node!.getAttribute(a) ?? '').trim());
+    const labels = ['alt', 'data-emoji', 'data-plain-text', 'aria-label', 'title'].map(a => (node!.getAttribute(a) ?? '').trim());
     const text = (node.textContent ?? '').trim();
-    if ([...values, text].some(v => LIGHTNING.test(v)) || values.some(v => LIGHTNING_NAMES.test(v))) return true;
+    if ([...labels, text].some(v => LIGHTNING.test(v))) return true;
+    if (labels.some(v => LIGHTNING_NAMES.test(v) || (v.length <= 40 && v.includes('\u26a1')))) return true;
+    if (['src', 'style', 'data-src'].some(a => LIGHTNING_CODE.test(node!.getAttribute(a) ?? ''))) return true;
     // A larger container with more than the emoji in it is not the emoji.
     if (text && !LIGHTNING.test(text)) return false;
   }
   return false;
 }
 
-/** A ⚡ badge just added inside a message row: the message reacted to. */
-function rowWithNewBadge(records: MutationRecord[]): HTMLElement | null {
+/**
+ * ⚡ reaction badges on a message row: ⚡ elements outside the message's own
+ * text (a message may itself contain ⚡, like a posted "⚡ Zapped …").
+ */
+export function lightningBadges(row: Element): number {
+  let count = 0;
+  for (const el of Array.from(row.querySelectorAll('*'))) {
+    if (el.children.length || el.closest('[data-pre-plain-text]')) continue;
+    if (isLightningEmoji(el)) count++;
+  }
+  return count;
+}
+
+/**
+ * Message rows touched by these mutations that gained a ⚡ badge: compared with
+ * `before` when given (only rows in it count), else by a badge among the added nodes.
+ */
+function rowsWithNewBadges(records: MutationRecord[], before?: Map<Element, number>): HTMLElement[] {
+  const touched = new Set<HTMLElement>();
   for (const record of records) {
+    const target = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
+    const row = messageRowOf(target);
+    if (row) touched.add(row);
     for (const node of Array.from(record.addedNodes)) {
-      const el = node.nodeType === 1 ? node as Element : node.parentElement;
-      if (!el) continue;
-      const row = messageRowOf(el);
-      if (!row) continue;
-      const candidates = [el, ...el.querySelectorAll('*')];
-      if (candidates.some(c => isLightningEmoji(c) && !c.children.length) || isLightningEmoji(el)) return row;
-    }
-    if (record.type === 'characterData' && LIGHTNING.test((record.target.nodeValue ?? '').trim())) {
-      const row = messageRowOf(record.target.parentElement);
-      if (row) return row;
+      const added = messageRowOf(node.nodeType === 1 ? node as Element : node.parentElement);
+      if (added) touched.add(added);
     }
   }
-  return null;
+  return [...touched].filter(row => {
+    if (before) return before.has(row) && lightningBadges(row) > (before.get(row) ?? 0);
+    return records.some(r => Array.from(r.addedNodes).some(n => {
+      const el = n.nodeType === 1 ? n as Element : n.parentElement;
+      return !!el && row.contains(el) && !el.closest('[data-pre-plain-text]')
+        && (isLightningEmoji(el) || Array.from(el.querySelectorAll('*')).some(c => !c.children.length && isLightningEmoji(c)));
+    }));
+  });
+}
+
+/** A ⚡ badge just added inside a message row: the message reacted to. */
+function rowWithNewBadge(records: MutationRecord[]): HTMLElement | null {
+  return rowsWithNewBadges(records)[0] ?? null;
 }
 
 export interface ReactionWatcher {
@@ -78,7 +117,13 @@ export function installReactionWatcher(
   now: () => number = Date.now,
   onMissed: (missed: MissedReaction) => void = () => {},
   badgeWaitMs: number = BADGE_WAIT_MS,
+  /** Troubleshooting: hears every click outside the chat and every new element in a message. */
+  trace: ((what: string, html: string) => void) | null = null,
 ): ReactionWatcher {
+  // Badges per message when the person last clicked anywhere: a message that
+  // gains a ⚡ badge right after is one they reacted to, however the picker is built.
+  let snapshot: Map<Element, number> | null = null;
+  let snapshotAt = -Infinity;
   let rowAt = 0;
   let row: HTMLElement | null = null;
   let footerAt = 0;
@@ -110,9 +155,28 @@ export function installReactionWatcher(
   };
 
   const observer = new MutationObserver(records => {
-    if (!pending) return;
-    const reacted = rowWithNewBadge(records);
-    if (reacted) settle(reacted);
+    if (trace) {
+      for (const record of records) {
+        for (const node of Array.from(record.addedNodes)) {
+          const el = node.nodeType === 1 ? node as Element : null;
+          if (el && messageRowOf(el) && !el.closest('[data-pre-plain-text]')) trace('added inside a message', el.outerHTML.slice(0, 3000));
+        }
+      }
+    }
+    if (pending) {
+      const reacted = rowWithNewBadge(records);
+      if (reacted) settle(reacted);
+      return;
+    }
+    // No ⚡ press was recognised (unknown picker markup): a message that gains a
+    // ⚡ badge shortly after a click is still the person's reaction.
+    if (snapshot && now() - snapshotAt < BADGE_AFTER_CLICK_MS) {
+      const [reacted] = rowsWithNewBadges(records, snapshot);
+      if (reacted) {
+        snapshot.set(reacted, lightningBadges(reacted));
+        if (shouldHandle()) onReact(reacted);
+      }
+    }
   });
 
   const onPress = (event: Event) => {
@@ -121,6 +185,14 @@ export function installReactionWatcher(
     if (event.type === 'pointerdown') {
       if (messageRowOf(target)) { row = lastRow() ?? messageRowOf(target); rowAt = now(); }
       if (target.closest('footer')) footerAt = now();
+      else if (!target.closest('[data-whatsapp-zaps]')) {
+        snapshot = new Map([...doc.querySelectorAll('#main [data-id]')].map(r => [r, lightningBadges(r)]));
+        snapshotAt = now();
+        if (trace && !messageRowOf(target)) {
+          const around = target.parentElement?.parentElement ?? target;
+          trace('click outside the chat', around.outerHTML.slice(0, 3000));
+        }
+      }
     }
     if (!isLightningEmoji(target)) return;
     if (target.closest('footer') || messageRowOf(target) || target.closest('[data-whatsapp-zaps]')) return;

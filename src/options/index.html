@@ -83,6 +83,8 @@
     @keyframes pulse { 50% { opacity: .55; } }
     @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
     .error, #status.error { color: var(--bad); }
+    label.check { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; font-size: 13.5px; }
+    label.check input { width: 16px; height: 16px; accent-color: var(--zap); }
     .popup-only { display: none; }
 
     /* Toolbar popup: the same page, compact. Chrome caps popups at 800×600. */
@@ -170,6 +172,7 @@
       <h2>Troubleshooting</h2>
       <p class="muted">If a mention or the message box does not work as it should, copy the diagnostics and send them to the developer.
         They contain the markup of WhatsApp's message box and mention list, including the names shown there. They stay in this browser until you copy them.</p>
+      <label class="check"><input type="checkbox" id="trace-reactions"> Record reaction clicks for 10 minutes, then react with ⚡ once</label>
       <div class="toolbar">
         <button type="button" id="copy-diagnostics">Copy diagnostics</button>
         <button type="button" id="clear-diagnostics">Clear</button>
