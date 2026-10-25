@@ -68,6 +68,7 @@ export async function fetchCappedJson(
   url: string,
   fetchFn: FetchFn,
   label: string,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
   let res: Response;
   try {
@@ -80,7 +81,7 @@ export async function fetchCappedJson(
       // the second hop inward"), and NIP-05 forbids following redirects too.
       redirect: 'error',
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     if ((err as Error)?.name === 'TimeoutError') {

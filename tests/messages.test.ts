@@ -53,3 +53,12 @@ describe('parseBackgroundRequest — search', () => {
     }
   });
 });
+
+describe('parseBackgroundRequest — avatar', () => {
+  it('accepts https picture URLs only', () => {
+    assert.deepEqual(parseBackgroundRequest({ type: 'avatar', url: 'https://img.example/a.png' }), { type: 'avatar', url: 'https://img.example/a.png' });
+    for (const url of ['http://img.example/a.png', 'javascript:alert(1)', 'https://user:pw@img.example/a', 5]) {
+      assert.equal(parseBackgroundRequest({ type: 'avatar', url }), null, String(url));
+    }
+  });
+});

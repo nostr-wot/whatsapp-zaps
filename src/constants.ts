@@ -52,9 +52,34 @@ export const WEBLN_WAIT_MS = 10_000;
 export const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'];
 
 /** NIP-50 relays asked for name searches. They see what you search for. */
-export const SEARCH_RELAYS = ['wss://relay.nostr.band', 'wss://search.nos.today'];
+export const SEARCH_RELAYS = ['wss://relay.nostr.band', 'wss://search.nos.today', 'wss://relay.noswhere.com', 'wss://relay.ditto.pub'];
 
-export const NOSTR_QUERY_MAX_WAIT_MS = 4_000;
+/** How long a relay query waits for slow relays before answering with what it has. */
+export const NOSTR_QUERY_MAX_WAIT_MS = 2_500;
+
+/** NIP-05 checks during a search give up sooner than payments do. */
+export const NIP05_TIMEOUT_MS = 4_000;
+
+/** Search results are reused for this long. */
+export const SEARCH_CACHE_MS = 5 * 60_000;
+
+/** The person's own Nostr pubkey (hex), optional: people they follow rank first. */
+export const MY_PUBKEY_KEY = 'myPubkey';
+
+/** Sats sent when reacting to a message with ⚡. */
+export const REACTION_AMOUNT_KEY = 'reactionZapSats';
+
+export const DEFAULT_REACTION_SATS = 21;
+
+/** Their follow list, cached: `{ pubkey, at, follows: string[] }`. */
+export const FOLLOWS_CACHE_KEY = 'followsCache';
+
+export const FOLLOWS_CACHE_MS = 60 * 60_000;
+
+/** Profile pictures: largest accepted, and how many are kept in memory. */
+export const AVATAR_MAX_BYTES = 300 * 1024;
+
+export const AVATAR_CACHE_SIZE = 150;
 
 export const MAX_SEARCH_RESULTS = 20;
 

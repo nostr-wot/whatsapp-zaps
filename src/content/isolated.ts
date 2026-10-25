@@ -100,6 +100,7 @@ uninstallers.push(replies.uninstall);
 const dialog = new ZapDialog({
   onClosed: () => { busy = false; },
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
+  avatar: url => ask<string | null>({ type: 'avatar', url }),
 });
 
 uninstallers.push(installInterceptor(({ text, mentions, composer }) => {

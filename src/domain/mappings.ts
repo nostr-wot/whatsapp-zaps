@@ -11,6 +11,7 @@
  * Everything here is pure: storage lives in services/mappingStore.ts.
  */
 import { parseLightningAddress } from './lnurl.ts';
+import { safePictureUrl } from './nostr.ts';
 import type { Mention } from './command.ts';
 
 export interface Mapping {
@@ -30,6 +31,8 @@ export interface NostrSnapshot {
   name: string | null;
   /** Only stored when it was verified at link time. */
   nip05: string | null;
+  /** Profile picture address (https), fetched through the background when shown. */
+  picture?: string | null;
 }
 
 const HEX_PUBKEY = /^[0-9a-f]{64}$/;
@@ -124,7 +127,11 @@ export function saveMapping(
   if (pubkey) {
     if (!HEX_PUBKEY.test(pubkey)) throw new Error('Invalid Nostr pubkey');
     mapping.pubkey = pubkey;
-    if (nostr) mapping.nostr = { name: nostr.name?.slice(0, 80) || null, nip05: nostr.nip05?.slice(0, 200) || null };
+    if (nostr) {
+      mapping.nostr = { name: nostr.name?.slice(0, 80) || null, nip05: nostr.nip05?.slice(0, 200) || null };
+      const picture = safePictureUrl(nostr.picture);
+      if (picture) mapping.nostr.picture = picture;
+    }
   }
   if (scope.kind === 'global') {
     return { ...store, global: { ...store.global, [contactKey]: mapping } };
@@ -162,7 +169,8 @@ function isMapping(value: unknown): value is Mapping {
 function isSnapshot(value: unknown): value is NostrSnapshot {
   if (typeof value !== 'object' || value === null) return false;
   const n = value as Record<string, unknown>;
-  return (n.name === null || typeof n.name === 'string') && (n.nip05 === null || typeof n.nip05 === 'string');
+  return (n.name === null || typeof n.name === 'string') && (n.nip05 === null || typeof n.nip05 === 'string')
+    && (n.picture === undefined || n.picture === null || (typeof n.picture === 'string' && safePictureUrl(n.picture) === n.picture));
 }
 
 function sanitizeBucket(value: unknown): Record<string, Mapping> {

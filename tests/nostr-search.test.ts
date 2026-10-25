@@ -4,7 +4,7 @@ import * as nip19 from 'nostr-tools/nip19';
 import type { Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { PROFILE_RELAYS, SEARCH_RELAYS } from '../src/constants.ts';
-import { resolveNip05, searchProfiles, type SearchDeps } from '../src/services/nostrSearch.ts';
+import { cachedSearch, fetchFollows, resolveNip05, searchProfiles, type SearchDeps } from '../src/services/nostrSearch.ts';
 import { person, profileEvent } from './helpers/nostr.ts';
 
 const alice = person();
@@ -92,5 +92,47 @@ describe('resolveNip05', () => {
 
   it('treats network failures as unresolved', async () => {
     assert.equal(await resolveNip05('a@x.example', async () => { throw new TypeError('Failed to fetch'); }), null);
+  });
+});
+
+describe('follows and caching', () => {
+  it('ranks people the person follows first and marks them', async () => {
+    const { d } = deps({ events: [impostor, aliceProfile], nostrJson: { 'alice.example': { alice: alice.pubkey } } });
+    d.follows = async () => new Set([mallory.pubkey]);
+    const results = await searchProfiles('Alice', d);
+    assert.equal(results[0].pubkey, mallory.pubkey, 'followed comes first');
+    assert.equal(results[0].followed, true);
+    assert.equal(results[1].followed, false);
+  });
+
+  it('ignores a follows lookup that fails', async () => {
+    const { d } = deps({ events: [aliceProfile] });
+    d.follows = async () => { throw new Error('relays down'); };
+    assert.equal((await searchProfiles('Alice', d)).length, 1);
+  });
+
+  it('reads the newest signed follow list', async () => {
+    const { finalizeEvent } = await import('nostr-tools/pure');
+    const me = person();
+    const old = finalizeEvent({ kind: 3, created_at: 1, tags: [['p', alice.pubkey]], content: '' }, me.sk);
+    const fresh = finalizeEvent({ kind: 3, created_at: 2, tags: [['p', mallory.pubkey], ['p', 'nope'], ['e', alice.pubkey]], content: '' }, me.sk);
+    const forged = { ...fresh, created_at: 3, tags: [['p', alice.pubkey]] };
+    const list = await fetchFollows(me.pubkey, async () => [old, forged, fresh]);
+    assert.deepEqual(list, [mallory.pubkey]);
+  });
+
+  it('reuses results within the cache window, and not failures', async () => {
+    let calls = 0;
+    let now = 0;
+    let fail = true;
+    const search = cachedSearch(async () => { calls++; if (fail) throw new Error('x'); return []; }, 1000, () => now);
+    await assert.rejects(search('Ana'));
+    fail = false;
+    await search('ana ');
+    await search('ANA');
+    assert.equal(calls, 2, 'the failure was retried, then cached by normalized text');
+    now = 2000;
+    await search('ana');
+    assert.equal(calls, 3, 'expired');
   });
 });

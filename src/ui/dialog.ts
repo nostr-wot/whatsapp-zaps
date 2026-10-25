@@ -117,9 +117,20 @@ button.option {
 button.option:hover:not(:disabled) { background: var(--tint); border-color: var(--zap); color: var(--fg); }
 button.option:disabled { opacity: .55; }
 .avatar {
-  flex: none; width: 36px; height: 36px; border-radius: 50%;
-  display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; text-transform: uppercase;
+  flex: none; width: 40px; height: 40px; border-radius: 50%; position: relative; overflow: hidden;
+  display: grid; place-items: center; font-weight: 700; font-size: 16px; color: #fff; text-transform: uppercase;
 }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); }
+.chip.follows { background: var(--zap-soft); color: var(--zap-strong); }
+button.small.more { justify-self: start; }
+.skeleton { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--line); }
+.skeleton-dot { background: var(--tint); }
+.skeleton-lines { flex: 1; display: grid; gap: 6px; }
+.skeleton-lines span { height: 10px; border-radius: 5px; background: var(--tint); }
+.skeleton-lines span:first-child { width: 55%; } .skeleton-lines span:last-child { width: 80%; }
+.skeleton { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+button.option:focus-visible { outline: 2px solid var(--zap); outline-offset: 1px; background: var(--tint); }
 .hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
 .hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
 .who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
@@ -162,7 +173,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .loading { display: flex; gap: 12px; align-items: center; color: var(--muted); padding: 8px 0 4px; }
 .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--zap-soft); border-top-color: var(--zap); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .spinner, .skeleton { animation: none; } * { transition: none !important; } }
 `;
 
 type Child = Node | string | null | undefined | false;
@@ -205,6 +216,7 @@ export class ZapDialog implements ZapUi, LinkUi {
   private readonly shadowMode: ShadowRootMode;
   private readonly requireTrusted: boolean;
   private readonly search: ((query: string) => Promise<ProfileResult[]>) | null;
+  private readonly avatar: ((url: string) => Promise<string | null>) | null;
 
   /**
    * The shadow root is closed and buttons ignore synthetic events by default,
@@ -218,12 +230,15 @@ export class ZapDialog implements ZapUi, LinkUi {
     requireTrusted?: boolean;
     /** Nostr profile search; without it the address prompt offers no search. */
     search?: (query: string) => Promise<ProfileResult[]>;
+    /** Profile pictures as data: URLs (fetched by the background); initials without it. */
+    avatar?: (url: string) => Promise<string | null>;
   } = {}) {
     this.doc = options.doc ?? document;
     this.onClosed = options.onClosed ?? (() => {});
     this.shadowMode = options.shadowMode ?? 'closed';
     this.requireTrusted = options.requireTrusted ?? true;
     this.search = options.search ?? null;
+    this.avatar = options.avatar ?? null;
   }
 
   /** Run `handler` on click, but only for clicks a person made. */
@@ -314,19 +329,17 @@ export class ZapDialog implements ZapUi, LinkUi {
         if (!this.search || !query) return;
         const run = ++searchRun;
         message.textContent = '';
-        status.textContent = 'Searching Nostr…';
-        results.replaceChildren();
+        this.showSearching(status, results);
         try {
           const found = await this.search(query);
           if (run !== searchRun) return;
-          status.textContent = found.length ? 'Pick the right person. Check the npub if names look alike.' : 'No Nostr profiles found.';
-          results.replaceChildren(...found.map(profile => this.profileOption(profile, () => {
+          this.showResults(found, status, results, input, profile => {
             input.value = profile.lud16!;
             picked = { pubkey: profile.pubkey, address: profile.lud16! };
             status.textContent = `Selected ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)} — ${profile.lud16}`;
             results.replaceChildren();
             input.focus();
-          })));
+          });
         } catch (err) {
           if (run !== searchRun) return;
           status.textContent = '';
@@ -338,6 +351,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       this.onCancel = () => done(null);
       this.onClick(cancel, () => done(null));
       this.onClick(searchButton, () => { void runSearch(); });
+      this.liveSearch(input, () => { void runSearch(); }, () => picked !== null && input.value.trim() === picked.address);
       const finish = (address: string, profile: ProfileResult | null) => {
         const choice = (form.querySelector(`input[name="${scopeName}"]:checked`) as HTMLInputElement | null)?.value;
         done({
@@ -440,7 +454,7 @@ export class ZapDialog implements ZapUi, LinkUi {
         if (memberInput) answer.memberName = memberInput.value.trim();
         if (profile) {
           answer.pubkey = profile.pubkey;
-          answer.nostr = { name: profile.displayName ?? profile.name, nip05: profile.nip05Verified ? profile.nip05 : null };
+          answer.nostr = { name: profile.displayName ?? profile.name, nip05: profile.nip05Verified ? profile.nip05 : null, picture: profile.picture };
         }
         done(answer);
       };
@@ -455,13 +469,11 @@ export class ZapDialog implements ZapUi, LinkUi {
         const query = input.value.trim();
         if (!this.search || !query) return;
         const run = ++searchRun;
-        status.textContent = 'Searching Nostr…';
-        results.replaceChildren();
+        this.showSearching(status, results);
         try {
           const found = await this.search(query);
           if (run !== searchRun) return;
-          status.textContent = found.length ? 'Pick the right person. Check the npub if names look alike.' : 'No Nostr profiles found.';
-          results.replaceChildren(...found.map(profile => this.profileOption(profile, () => pick(profile))));
+          this.showResults(found, status, results, input, pick);
         } catch (err) {
           if (run !== searchRun) return;
           status.textContent = err instanceof Error ? err.message : String(err);
@@ -483,6 +495,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       );
       this.onClick(close, () => done(null));
       this.onClick(searchButton, () => { void runSearch(); });
+      this.liveSearch(input, () => { void runSearch(); }, () => picked !== null && input.value.trim() === picked.lud16);
       form.addEventListener('submit', e => {
         e.preventDefault();
         if (this.requireTrusted && !e.isTrusted) return;
@@ -536,8 +549,10 @@ export class ZapDialog implements ZapUi, LinkUi {
     const npubEl = npub ? h('span', { class: 'muted mono' }, shortNpub(npub)) : null;
     if (npubEl && npub) npubEl.title = npub;
     const title = member ?? mapping.nostr?.name ?? (npub ? 'Nostr profile' : 'Lightning Address');
+    const face = avatar(member ?? mapping.nostr?.name ?? mapping.address, mapping.pubkey ?? mapping.address);
+    this.loadPicture(face, mapping.nostr?.picture ?? null);
     return h('div', { class: 'who-row' },
-      avatar(member ?? mapping.nostr?.name ?? mapping.address, mapping.pubkey ?? mapping.address),
+      face,
       h('div', { class: 'who' },
         h('div', { class: 'chips' },
           h('span', { class: 'name' }, title),
@@ -549,15 +564,86 @@ export class ZapDialog implements ZapUi, LinkUi {
     );
   }
 
+  /**
+   * Search as the person types: after a pause, from two characters. Only typing
+   * starts it; text that was filled in for them (a contact's name) is never sent
+   * to the relays until they edit it or press Search. `settled` skips searching
+   * when the text is a result they just picked.
+   */
+  private liveSearch(input: HTMLInputElement, run: () => void, settled: () => boolean): void {
+    if (!this.search) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    input.addEventListener('input', event => {
+      if (this.requireTrusted && !event.isTrusted) return;
+      clearTimeout(timer);
+      if (input.value.trim().length < 2 || settled()) return;
+      timer = setTimeout(run, 450);
+    });
+    // Down arrow moves from the search box into the results.
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'ArrowDown') return;
+      const first = input.closest('form')?.querySelector<HTMLButtonElement>('.results button.option:not(:disabled)');
+      if (first) { event.preventDefault(); first.focus(); }
+    });
+  }
+
+  private showSearching(status: HTMLElement, results: HTMLElement): void {
+    status.textContent = 'Searching Nostr…';
+    results.replaceChildren(...[0, 1, 2].map(() => h('div', { class: 'skeleton', 'aria-hidden': 'true' },
+      h('span', { class: 'avatar skeleton-dot' }), h('span', { class: 'skeleton-lines' }, h('span'), h('span')))));
+  }
+
+  /**
+   * Show results: payable profiles, with those that have no Lightning Address
+   * folded away behind a button (they cannot be paid). Arrow keys move between
+   * results; Enter picks one.
+   */
+  private showResults(found: ProfileResult[], status: HTMLElement, results: HTMLElement, input: HTMLInputElement, onPick: (p: ProfileResult) => void): void {
+    const payable = found.filter(p => p.lud16);
+    const unpayable = found.filter(p => !p.lud16);
+    status.textContent = payable.length
+      ? (payable.some(p => p.followed) ? 'People you follow come first. ' : '') + 'Check the npub if names look alike.'
+      : found.length ? 'None of these profiles has a Lightning Address.' : 'No Nostr profiles found.';
+    const items: Child[] = payable.map(p => this.profileOption(p, () => onPick(p)));
+    if (unpayable.length) {
+      const more = h('button', { type: 'button', class: 'small more' },
+        `Show ${unpayable.length} without a Lightning Address`);
+      this.onClick(more, () => { more.replaceWith(...unpayable.map(p => this.profileOption(p, () => {}))); });
+      items.push(payable.length ? more : null, ...(payable.length ? [] : unpayable.map(p => this.profileOption(p, () => {}))));
+    }
+    results.replaceChildren(...items.filter((c): c is HTMLElement => !!c));
+    results.onkeydown = event => {
+      const options = [...results.querySelectorAll<HTMLButtonElement>('button.option:not(:disabled)')];
+      const at = options.indexOf(event.target as HTMLButtonElement);
+      if (at < 0) return;
+      if (event.key === 'ArrowDown' && at < options.length - 1) { event.preventDefault(); options[at + 1].focus(); }
+      if (event.key === 'ArrowUp') { event.preventDefault(); (at > 0 ? options[at - 1] : input).focus(); }
+    };
+  }
+
+  /** Swap the initial for the profile picture once the background has fetched it. */
+  private loadPicture(avatarEl: HTMLElement, url: string | null): void {
+    if (!url || !this.avatar) return;
+    void this.avatar(url).then(data => {
+      if (!data || !avatarEl.isConnected) return;
+      const img = h('img', { alt: '', src: data });
+      img.addEventListener('error', () => img.remove());
+      avatarEl.append(img);
+    }, () => {});
+  }
+
   /** One search result as a button; profiles without a Lightning Address are shown but disabled. */
   private profileOption(profile: ProfileResult, onPick: () => void): HTMLElement {
     const title = profile.displayName ?? profile.name ?? 'Unnamed profile';
+    const face = avatar(title, profile.pubkey);
+    this.loadPicture(face, profile.picture);
     const button = h('button', { type: 'button', class: 'option' },
-      avatar(title, profile.pubkey),
+      face,
       h('span', { class: 'who' },
         h('span', { class: 'chips' },
           h('span', { class: 'name' }, title),
-          profile.name ? h('span', { class: 'muted' }, ` @${profile.name}`) : null),
+          profile.name ? h('span', { class: 'muted' }, ` @${profile.name}`) : null,
+          profile.followed ? h('span', { class: 'chip follows' }, 'You follow') : null),
         profile.nip05
           ? h('span', { class: 'chips' }, profile.nip05Verified
             ? h('span', { class: 'chip verified' }, `✓ ${profile.nip05}`)

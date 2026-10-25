@@ -1,11 +1,19 @@
-/** Options page: view, add, delete, import and export saved mappings. */
-import { MAPPINGS_STORAGE_KEY } from '../constants.ts';
-import { normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, type MappingScope, type MappingStore } from '../domain/mappings.ts';
+/**
+ * Contacts page, also the toolbar popup: saved contacts, Nostr search,
+ * settings, backup and diagnostics.
+ */
+import {
+  DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
+} from '../constants.ts';
+import {
+  normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore,
+  type Mapping, type MappingScope, type MappingStore,
+} from '../domain/mappings.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
-import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
+import { parseSearchQuery, shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import type { BackgroundResponse } from '../domain/messages.ts';
 import { clearDiagnostics, formatDiagnostics, loadDiagnostics } from '../services/diagnostics.ts';
-import { DIAGNOSTICS_KEY } from '../constants.ts';
+import { npubEncode } from 'nostr-tools/nip19';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -15,69 +23,92 @@ function setStatus(message: string, isError = false) {
   status.className = isError ? 'error' : '';
 }
 
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+async function ask<T>(message: unknown): Promise<T> {
+  const response = await chrome.runtime.sendMessage(message) as BackgroundResponse<T> | undefined;
+  if (!response) throw new Error('The extension background did not answer.');
+  if (!response.ok) throw new Error(response.error);
+  return response.value;
+}
+
+// ── People ──
+
+/** A round initial coloured from a stable key; the picture replaces it once fetched. */
+function avatar(label: string, key: string, picture: string | null | undefined): HTMLElement {
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const face = el('span', `avatar hue-${hash % 6}`, [...label.replace(/^[^\p{L}\p{N}]+/u, '')][0] ?? '?');
+  face.setAttribute('aria-hidden', 'true');
+  if (picture) {
+    void ask<string | null>({ type: 'avatar', url: picture }).then(data => {
+      if (!data) return;
+      const img = el('img');
+      img.alt = '';
+      img.src = data;
+      img.addEventListener('error', () => img.remove());
+      face.append(img);
+    }, () => {});
+  }
+  return face;
+}
+
 function chatLabel(chatKey: string): string {
   if (chatKey.startsWith('title:')) return chatKey.slice('title:'.length);
   if (chatKey.startsWith('jid:')) return chatKey.endsWith('@g.us') ? `Group ${chatKey.slice(4)}` : `Chat ${chatKey.slice(4)}`;
   return chatKey;
 }
 
-function table(store: MappingStore, scope: MappingScope): HTMLElement {
+/** One saved contact: who, their Nostr profile if linked, their Lightning Address. */
+function contactRow(mapping: Mapping, onDelete: () => void): HTMLElement {
+  const row = el('div', 'contact');
+  const who = el('div', 'who');
+  const top = el('div', 'line');
+  top.append(el('strong', '', mapping.displayName));
+  if (mapping.nostr?.name && mapping.nostr.name !== mapping.displayName) top.append(el('span', 'muted', ` · ${mapping.nostr.name}`));
+  if (mapping.nostr?.nip05) top.append(el('span', 'chip verified', `✓ ${mapping.nostr.nip05}`));
+  who.append(top, el('span', 'ln', `⚡ ${mapping.address}`));
+  if (mapping.pubkey) {
+    const npub = npubEncode(mapping.pubkey);
+    const line = el('span', 'muted mono', shortNpub(npub));
+    line.title = npub;
+    who.append(line);
+  }
+  const remove = el('button', 'small', 'Delete');
+  remove.type = 'button';
+  remove.setAttribute('aria-label', `Delete ${mapping.displayName}`);
+  remove.addEventListener('click', onDelete);
+  row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.pubkey ?? mapping.address, mapping.nostr?.picture), who, remove);
+  return row;
+}
+
+function contactList(store: MappingStore, scope: MappingScope): HTMLElement {
   const bucket = scope.kind === 'global' ? store.global : store.groups[scope.chatKey] ?? {};
   const rows = Object.entries(bucket).sort(([, a], [, b]) => a.displayName.localeCompare(b.displayName));
-  if (rows.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'muted';
-    empty.textContent = 'None saved yet.';
-    return empty;
-  }
-  const tableEl = document.createElement('table');
-  const head = tableEl.createTHead().insertRow();
-  for (const label of ['Contact', 'Lightning Address', '']) {
-    const th = document.createElement('th');
-    th.textContent = label;
-    head.append(th);
-  }
-  const body = tableEl.createTBody();
-  for (const [contactKey, mapping] of rows) {
-    const row = body.insertRow();
-    row.insertCell().textContent = mapping.displayName;
-    const addressCell = row.insertCell();
-    addressCell.append(el('span', 'ln', mapping.address));
-    if (mapping.nostr?.name || mapping.nostr?.nip05) {
-      const nostr = [mapping.nostr.name, mapping.nostr.nip05 && `✓ ${mapping.nostr.nip05}`].filter(Boolean).join(' ');
-      addressCell.append(el('br'), el('span', 'muted', `Nostr: ${nostr}`));
-    }
-    if (mapping.pubkey) addressCell.title = `From Nostr profile ${mapping.pubkey}`;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = 'Delete';
-    remove.setAttribute('aria-label', `Delete ${mapping.displayName}`);
-    remove.addEventListener('click', async () => {
-      await updateMappings(s => removeMapping(s, scope, contactKey));
-      setStatus(`Deleted ${mapping.displayName}.`);
-    });
-    row.insertCell().append(remove);
-  }
-  return tableEl;
+  if (rows.length === 0) return el('p', 'empty', 'None saved yet.');
+  const list = el('div', 'list');
+  list.append(...rows.map(([contactKey, mapping]) => contactRow(mapping, async () => {
+    await updateMappings(s => removeMapping(s, scope, contactKey));
+    setStatus(`Deleted ${mapping.displayName}.`);
+  })));
+  return list;
 }
 
 async function render() {
   const store = await loadMappings();
-  $('global').replaceChildren(table(store, { kind: 'global' }));
+  $('global').replaceChildren(contactList(store, { kind: 'global' }));
   const groups = $('groups');
   const keys = Object.keys(store.groups).sort();
   if (keys.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'muted';
-    empty.textContent = 'None saved yet.';
-    groups.replaceChildren(empty);
+    groups.replaceChildren(el('p', 'empty', 'None saved yet.'));
     return;
   }
-  groups.replaceChildren(...keys.flatMap(chatKey => {
-    const title = document.createElement('h3');
-    title.textContent = chatLabel(chatKey);
-    return [title, table(store, { kind: 'chat', chatKey })];
-  }));
+  groups.replaceChildren(...keys.flatMap(chatKey => [el('h3', '', chatLabel(chatKey)), contactList(store, { kind: 'chat', chatKey })]));
 }
 
 $('add-global').addEventListener('submit', async event => {
@@ -94,6 +125,152 @@ $('add-global').addEventListener('submit', async event => {
     setStatus(err instanceof Error ? err.message : String(err), true);
   }
 });
+
+// ── Nostr search ──
+
+/** One search result, with a form to save its address under a WhatsApp name. */
+function profileRow(profile: ProfileResult): HTMLElement {
+  const row = el('div', 'profile');
+  const who = el('div', 'who');
+  const top = el('div', 'line');
+  top.append(el('strong', '', profile.displayName ?? profile.name ?? 'Unnamed profile'));
+  if (profile.name) top.append(el('span', 'muted', ` @${profile.name}`));
+  if (profile.followed) top.append(el('span', 'chip follows', 'You follow'));
+  who.append(top);
+  if (profile.nip05) {
+    who.append(profile.nip05Verified
+      ? el('span', 'chip verified', `✓ ${profile.nip05}`)
+      : el('span', 'chip unverified', `${profile.nip05} (not verified)`));
+  }
+  const npub = el('span', 'muted mono', shortNpub(profile.npub));
+  npub.title = profile.npub;
+  who.append(npub, profile.lud16 ? el('span', 'ln', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
+  row.append(avatar(profile.displayName ?? profile.name ?? '?', profile.pubkey, profile.picture), who);
+
+  if (profile.lud16) {
+    const form = el('form', 'save');
+    const name = el('input');
+    name.required = true;
+    name.value = profile.displayName ?? profile.name ?? '';
+    name.placeholder = 'Name in WhatsApp';
+    name.setAttribute('aria-label', `WhatsApp name for ${profile.displayName ?? profile.npub}`);
+    const save = el('button', 'primary', 'Save');
+    save.type = 'submit';
+    form.append(name, save);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const label = name.value.trim();
+      try {
+        await updateMappings(s => saveMapping(s, { kind: 'global' }, `name:${normalizeName(label)}`, label, profile.lud16!, Date.now(), profile.pubkey, {
+          name: profile.displayName ?? profile.name, nip05: profile.nip05Verified ? profile.nip05 : null, picture: profile.picture,
+        }));
+        setStatus(`Saved ${label} → ${profile.lud16}.`);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err), true);
+      }
+    });
+    row.append(form);
+  }
+  return row;
+}
+
+function showSearching() {
+  const status = $('search-status');
+  status.textContent = 'Searching Nostr…';
+  status.className = 'muted';
+  $('search-results').replaceChildren(...[0, 1, 2].map(() => {
+    const row = el('div', 'skeleton');
+    const lines = el('span', 'skeleton-lines');
+    lines.append(el('span'), el('span'));
+    row.append(el('span', 'avatar skeleton-dot'), lines);
+    return row;
+  }));
+}
+
+function showResults(found: ProfileResult[]) {
+  const status = $('search-status');
+  const payable = found.filter(p => p.lud16);
+  const unpayable = found.filter(p => !p.lud16);
+  status.className = 'muted';
+  status.textContent = payable.length
+    ? (payable.some(p => p.followed) ? 'People you follow come first. ' : '') + 'Check the npub or a verified NIP-05 before saving: anyone can use any name.'
+    : found.length ? 'None of these profiles has a Lightning Address.' : 'No Nostr profiles found.';
+  const rows: HTMLElement[] = payable.map(profileRow);
+  if (unpayable.length) {
+    const more = el('button', 'small', `Show ${unpayable.length} without a Lightning Address`);
+    more.type = 'button';
+    more.addEventListener('click', () => more.replaceWith(...unpayable.map(profileRow)));
+    rows.push(...(payable.length ? [more] : unpayable.map(profileRow)));
+  }
+  $('search-results').replaceChildren(...rows);
+}
+
+let searchRun = 0;
+async function runSearch(query: string) {
+  if (!query) return;
+  const run = ++searchRun;
+  showSearching();
+  try {
+    const found = await ask<ProfileResult[]>({ type: 'search', query });
+    if (run === searchRun) showResults(found);
+  } catch (err) {
+    if (run !== searchRun) return;
+    $('search-results').replaceChildren();
+    const status = $('search-status');
+    status.textContent = err instanceof Error ? err.message : String(err);
+    status.className = 'error';
+  }
+}
+
+const queryInput = $<HTMLInputElement>('search-query');
+let typing: ReturnType<typeof setTimeout> | undefined;
+queryInput.addEventListener('input', () => {
+  clearTimeout(typing);
+  const query = queryInput.value.trim();
+  if (query.length >= 2) typing = setTimeout(() => { void runSearch(query); }, 450);
+});
+$('search').addEventListener('submit', event => {
+  event.preventDefault();
+  clearTimeout(typing);
+  void runSearch(queryInput.value.trim());
+});
+
+// ── Settings ──
+
+async function renderSettings() {
+  const stored = await chrome.storage.local.get([MY_PUBKEY_KEY, REACTION_AMOUNT_KEY]);
+  const me = stored[MY_PUBKEY_KEY];
+  $<HTMLInputElement>('my-npub').value = typeof me === 'string' && /^[0-9a-f]{64}$/.test(me) ? npubEncode(me) : '';
+  const amount = stored[REACTION_AMOUNT_KEY];
+  $<HTMLInputElement>('reaction-amount').value = String(typeof amount === 'number' ? amount : DEFAULT_REACTION_SATS);
+}
+
+$('settings').addEventListener('submit', async event => {
+  event.preventDefault();
+  const npubText = $<HTMLInputElement>('my-npub').value.trim();
+  const amount = Number($<HTMLInputElement>('reaction-amount').value);
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000) {
+    setStatus('The reaction amount must be a whole number of sats, from 1 to 1,000,000.', true);
+    return;
+  }
+  let pubkey: string | null = null;
+  if (npubText) {
+    const parsed = parseSearchQuery(npubText);
+    if (parsed?.kind !== 'pubkey') {
+      setStatus('That is not an npub. Paste the npub of your own Nostr account, or leave it empty.', true);
+      return;
+    }
+    pubkey = parsed.pubkey;
+  }
+  if (pubkey) await chrome.storage.local.set({ [MY_PUBKEY_KEY]: pubkey, [REACTION_AMOUNT_KEY]: amount });
+  else {
+    await chrome.storage.local.remove(MY_PUBKEY_KEY);
+    await chrome.storage.local.set({ [REACTION_AMOUNT_KEY]: amount });
+  }
+  setStatus(pubkey ? 'Saved. People you follow now come first in searches.' : 'Saved.');
+});
+
+// ── Backup ──
 
 $('export').addEventListener('click', async () => {
   const blob = new Blob([JSON.stringify(await loadMappings(), null, 2)], { type: 'application/json' });
@@ -123,82 +300,7 @@ $<HTMLInputElement>('import').addEventListener('change', async event => {
   }
 });
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
-}
-
-/** One search result, with a form to save its address under a WhatsApp name. */
-function profileRow(profile: ProfileResult): HTMLElement {
-  const row = el('div', 'profile');
-  const who = el('div', 'who');
-  const title = el('div');
-  title.append(el('strong', '', profile.displayName ?? profile.name ?? 'Unnamed profile'));
-  if (profile.name) title.append(el('span', 'muted', ` @${profile.name}`));
-  who.append(title);
-  if (profile.nip05) {
-    who.append(profile.nip05Verified
-      ? el('span', 'chip verified', `✓ ${profile.nip05}`)
-      : el('span', 'chip unverified', `${profile.nip05} (not verified)`));
-  }
-  const npub = el('span', 'muted mono', shortNpub(profile.npub));
-  npub.title = profile.npub;
-  who.append(npub,
-    profile.lud16 ? el('span', 'ln', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
-  row.append(who);
-
-  if (profile.lud16) {
-    const form = el('form', 'save');
-    const name = el('input');
-    name.required = true;
-    name.value = profile.displayName ?? profile.name ?? '';
-    name.placeholder = 'Name in WhatsApp';
-    name.setAttribute('aria-label', `WhatsApp name for ${profile.displayName ?? profile.npub}`);
-    const save = el('button', 'primary', 'Save');
-    save.type = 'submit';
-    form.append(name, save);
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      const label = name.value.trim();
-      try {
-        await updateMappings(s => saveMapping(s, { kind: 'global' }, `name:${normalizeName(label)}`, label, profile.lud16!, Date.now(), profile.pubkey));
-        setStatus(`Saved ${label} → ${profile.lud16}.`);
-      } catch (err) {
-        setStatus(err instanceof Error ? err.message : String(err), true);
-      }
-    });
-    row.append(form);
-  }
-  return row;
-}
-
-let searchRun = 0;
-$('search').addEventListener('submit', async event => {
-  event.preventDefault();
-  const query = String(new FormData(event.currentTarget as HTMLFormElement).get('query') ?? '').trim();
-  if (!query) return;
-  const run = ++searchRun;
-  const status = $('search-status');
-  status.textContent = 'Searching Nostr…';
-  status.className = 'muted';
-  $('search-results').replaceChildren();
-  const response = await chrome.runtime.sendMessage({ type: 'search', query }) as BackgroundResponse<ProfileResult[]> | undefined;
-  if (run !== searchRun) return;
-  if (!response?.ok) {
-    status.textContent = response?.error ?? 'Search failed.';
-    status.className = 'error';
-    return;
-  }
-  status.textContent = response.value.length
-    ? 'Check the npub or a verified NIP-05 before saving: anyone can use any name.'
-    : 'No Nostr profiles found.';
-  $('search-results').replaceChildren(...response.value.map(profileRow));
-});
-
-// In the toolbar popup, backup (which needs file dialogs that close popups) lives on the full page.
-document.getElementById('open-full')?.addEventListener('click', () => { void chrome.runtime.openOptionsPage(); window.close(); });
+// ── Diagnostics ──
 
 async function renderDiagnosticsCount() {
   const count = (await loadDiagnostics()).length;
@@ -221,10 +323,15 @@ $('clear-diagnostics').addEventListener('click', async () => {
   setStatus('Diagnostics cleared.');
 });
 
+// In the toolbar popup, backup (which needs file dialogs that close popups) lives on the full page.
+document.getElementById('open-full')?.addEventListener('click', () => { void chrome.runtime.openOptionsPage(); window.close(); });
+
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && MAPPINGS_STORAGE_KEY in changes) void render();
-  if (area === 'local' && DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
+  if (area !== 'local') return;
+  if (MAPPINGS_STORAGE_KEY in changes) void render();
+  if (DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
 });
-void renderDiagnosticsCount();
 
 void render();
+void renderSettings();
+void renderDiagnosticsCount();

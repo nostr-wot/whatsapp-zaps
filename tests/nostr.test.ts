@@ -95,7 +95,7 @@ describe('latestProfiles', () => {
 
 describe('rankProfiles', () => {
   const base = (over: Partial<ProfileResult>): ProfileResult => ({
-    pubkey: 'x', npub: 'npub1x', displayName: null, name: null, nip05: null, nip05Verified: false, lud16: null, createdAt: 0, ...over,
+    pubkey: 'x', npub: 'npub1x', displayName: null, name: null, nip05: null, nip05Verified: false, lud16: null, picture: null, followed: false, createdAt: 0, ...over,
   });
 
   it('puts verified, payable, well-matching profiles first', () => {

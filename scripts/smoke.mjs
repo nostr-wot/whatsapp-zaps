@@ -231,7 +231,7 @@ try {
   // 7. Options page: search by NIP-05 and save under a WhatsApp name.
   const options = await context.newPage();
   await options.goto(`chrome-extension://${new URL(worker.url()).host}/options.html`);
-  await options.fill('#search input[name="query"]', 'ana@nostr.example');
+  await options.fill('#search-query', 'ana@nostr.example');
   await options.click('#search button[type="submit"]');
   await options.waitForSelector('.profile');
   const rows = await options.$$eval('.profile', els => els.map(e => e.textContent));
@@ -243,7 +243,7 @@ try {
   const after = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
   assert.deepEqual(
     { ...after.zapMappings.global['name:ana from work'], updatedAt: 0 },
-    { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey },
+    { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example' } },
   );
   assert.match(await options.textContent('#global'), /Ana from work/);
 
@@ -518,10 +518,10 @@ try {
   const toolbar = await context.newPage();
   await toolbar.setViewportSize({ width: 400, height: 600 });
   await toolbar.goto(`chrome-extension://${new URL(worker.url()).host}/popup.html`);
-  await toolbar.waitForSelector('#global table');
+  await toolbar.waitForSelector('#global .contact');
   assert.equal(await toolbar.isVisible('#backup'), false, 'backup only on the full page');
   assert.equal(await toolbar.isVisible('#open-full'), true);
-  assert.equal(await toolbar.isVisible('#search input[name="query"]'), true);
+  assert.equal(await toolbar.isVisible('#search-query'), true);
   assert.equal(await toolbar.evaluate(() => document.documentElement.scrollWidth <= 400), true, 'no sideways scroll');
   if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8-toolbar.png') });
   const manifest = await worker.evaluate(() => chrome.runtime.getManifest());

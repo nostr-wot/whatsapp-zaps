@@ -140,8 +140,8 @@ describe('ZapDialog — Nostr search', () => {
 
   const PK = 'c'.repeat(64);
   const results = [
-    { pubkey: PK, npub: 'npub1alicealicealicealice', displayName: 'Alice', name: 'alice', nip05: 'alice@a.example', nip05Verified: true, lud16: 'alice@wallet.example', createdAt: 1 },
-    { pubkey: 'd'.repeat(64), npub: 'npub1nolightningnolightning', displayName: 'Alice (no LN)', name: null, nip05: 'alice@b.example', nip05Verified: false, lud16: null, createdAt: 1 },
+    { pubkey: PK, npub: 'npub1alicealicealicealice', displayName: 'Alice', name: 'alice', nip05: 'alice@a.example', nip05Verified: true, lud16: 'alice@wallet.example', picture: null, followed: false, createdAt: 1 },
+    { pubkey: 'd'.repeat(64), npub: 'npub1nolightningnolightning', displayName: 'Alice (no LN)', name: null, nip05: 'alice@b.example', nip05Verified: false, lud16: null, picture: null, followed: false, createdAt: 1 },
   ];
 
   function withSearch(impl: (q: string) => Promise<typeof results>) {
@@ -161,9 +161,14 @@ describe('ZapDialog — Nostr search', () => {
     form.dispatchEvent(new Event('submit', { cancelable: true }));
     await t.tick();
     assert.deepEqual(t.queries, ['alice']);
-    const options = [...t.root().querySelectorAll('.results button.option')] as HTMLButtonElement[];
-    assert.equal(options.length, 2);
+    let options = [...t.root().querySelectorAll('.results button.option')] as HTMLButtonElement[];
+    assert.equal(options.length, 1, 'only payable profiles are shown at first');
     assert.match(options[0].textContent!, /✓ alice@a\.example/);
+    const more = [...t.root().querySelectorAll('.results button.more')][0] as HTMLButtonElement;
+    assert.equal(more.textContent, 'Show 1 without a Lightning Address');
+    more.click();
+    options = [...t.root().querySelectorAll('.results button.option')] as HTMLButtonElement[];
+    assert.equal(options.length, 2);
     assert.match(options[1].textContent!, /not verified/);
     assert.equal(options[1].disabled, true);
     options[0].click();
@@ -243,6 +248,57 @@ describe('ZapDialog — Nostr search', () => {
     assert.match(t.root().querySelector('.error')!.textContent!, /relays unreachable/);
   });
 
+  it('searches as the person types, but never the prefilled text on its own', async () => {
+    const t = withSearch(async () => results);
+    void t.dialog.link({ contact: { kind: 'contact', id: '1@c.us', name: 'Ana Paula' }, current: null, members: [] });
+    const input = t.root().querySelector('#wz-query') as HTMLInputElement;
+    await new Promise(r => setTimeout(r, 600));
+    assert.deepEqual(t.queries, [], 'prefilled name not searched');
+    input.value = 'al';
+    input.dispatchEvent(new Event('input'));
+    input.value = 'ali';
+    input.dispatchEvent(new Event('input'));
+    await new Promise(r => setTimeout(r, 600));
+    assert.deepEqual(t.queries, ['ali'], 'one search after the pause, for the latest text');
+  });
+
+  it('shows "You follow" and moves through results with the arrow keys', async () => {
+    const t = withSearch(async () => [{ ...results[0], followed: true }, { ...results[0], pubkey: 'e'.repeat(64), npub: 'npub1other', displayName: 'Alice 2' }]);
+    void t.dialog.askAddress('Alice', null);
+    const input = t.root().querySelector('input[type="text"]') as HTMLInputElement;
+    input.value = 'alice';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await t.tick();
+    const options = [...t.root().querySelectorAll('.results button.option')] as HTMLButtonElement[];
+    assert.match(options[0].textContent!, /You follow/);
+    assert.match(t.root().textContent!, /People you follow come first/);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    assert.equal(t.root().activeElement, options[0]);
+    options[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    assert.equal(t.root().activeElement, options[1]);
+    options[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    assert.equal(t.root().activeElement, options[0]);
+  });
+
+  it('shows the profile picture once fetched, keeping the initial otherwise', async () => {
+    const asked: string[] = [];
+    const dialog = new ZapDialog({
+      shadowMode: 'open', requireTrusted: false,
+      search: async () => [{ ...results[0], picture: 'https://img.example/a.png' }, { ...results[0], pubkey: 'f'.repeat(64), picture: 'https://img.example/broken.png' }],
+      avatar: async url => { asked.push(url); return url.includes('broken') ? null : 'data:image/png;base64,AAAA'; },
+    });
+    void dialog.askAddress('Alice', null);
+    const root = document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    (root.querySelector('input[type="text"]') as HTMLInputElement).value = 'alice';
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await new Promise(r => setTimeout(r, 10));
+    assert.deepEqual(asked, ['https://img.example/a.png', 'https://img.example/broken.png']);
+    const avatars = [...root.querySelectorAll('.results .avatar')];
+    assert.equal(avatars[0].querySelector('img')?.getAttribute('src'), 'data:image/png;base64,AAAA');
+    assert.equal(avatars[1].querySelector('img'), null);
+    assert.equal(avatars[1].textContent, 'A', 'the initial stays');
+  });
+
   it('offers no search without a search function', () => {
     const dialog = new ZapDialog({ shadowMode: 'open', requireTrusted: false });
     void dialog.askAddress('Alice', null);
@@ -255,7 +311,7 @@ describe('ZapDialog — link popup', () => {
   beforeEach(() => { installDom(); });
 
   const PK = 'f'.repeat(64);
-  const PROFILE = { pubkey: PK, npub: 'npub1anaanaanaanaanaana', displayName: 'Ana P', name: 'ana', nip05: 'ana@nostr.example', nip05Verified: true, lud16: 'ana@wallet.example', createdAt: 1 };
+  const PROFILE = { pubkey: PK, npub: 'npub1anaanaanaanaanaana', displayName: 'Ana P', name: 'ana', nip05: 'ana@nostr.example', nip05Verified: true, lud16: 'ana@wallet.example', picture: null, followed: false, createdAt: 1 };
   const contact = { kind: 'contact' as const, id: '5491100000000@c.us', name: 'Ana Paula' };
 
   function make(search: (q: string) => Promise<typeof PROFILE[]> = async () => [PROFILE]) {
@@ -271,7 +327,7 @@ describe('ZapDialog — link popup', () => {
     const t = make();
     const answer = t.dialog.link({
       contact,
-      current: { contactKey: 'id:x', mapping: { address: 'ana@wallet.example', displayName: 'Ana Paula', updatedAt: 1, pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' } } },
+      current: { contactKey: 'id:x', mapping: { address: 'ana@wallet.example', displayName: 'Ana Paula', updatedAt: 1, pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example', picture: null } } },
       members: [],
     });
     const text = t.root().textContent!;
@@ -303,7 +359,7 @@ describe('ZapDialog — link popup', () => {
     assert.equal(t.button('Link').disabled, false);
     t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     assert.deepEqual(await answer, {
-      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example', picture: null },
     });
   });
 
@@ -341,7 +397,7 @@ describe('ZapDialog — link popup', () => {
     assert.equal(t.root().querySelectorAll('.results button.option').length, 1);
     t.button('Link').click();
     assert.deepEqual(await answer, {
-      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example', picture: null },
     });
   });
 
@@ -365,7 +421,7 @@ describe('ZapDialog — link popup', () => {
     member.value = 'Ana from work';
     t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     assert.deepEqual(await answer, {
-      action: 'link', address: 'ana@wallet.example', memberName: 'Ana from work', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+      action: 'link', address: 'ana@wallet.example', memberName: 'Ana from work', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example', picture: null },
     });
   });
 

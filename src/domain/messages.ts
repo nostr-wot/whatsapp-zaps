@@ -1,17 +1,19 @@
 /**
  * Messages between the content script and the background worker.
  *
- * The background only fetches LNURL data and searches Nostr profiles; it never pays. Paying happens in the
+ * The background only fetches LNURL data, searches Nostr profiles and fetches
+ * their pictures; it never pays. Paying happens in the
  * page through Nostr WoT's WebLN, which applies its own consent and limits.
  */
 import { MAX_COMMENT_LENGTH, MAX_ZAP_SATS } from '../constants.ts';
 import { parseLightningAddress, type LnurlPayParams } from './lnurl.ts';
-import { MAX_BECH32_QUERY_LENGTH } from './nostr.ts';
+import { MAX_BECH32_QUERY_LENGTH, safePictureUrl } from './nostr.ts';
 
 export type BackgroundRequest =
   | { type: 'resolve'; address: string }
   | { type: 'invoice'; address: string; amountSats: number; comment: string }
-  | { type: 'search'; query: string };
+  | { type: 'search'; query: string }
+  | { type: 'avatar'; url: string };
 
 /** What the confirm dialog needs about a recipient. The callback URL stays in the background. */
 export interface RecipientInfo {
@@ -40,6 +42,9 @@ export function toRecipientInfo(params: LnurlPayParams): RecipientInfo {
 export function parseBackgroundRequest(message: unknown): BackgroundRequest | null {
   if (typeof message !== 'object' || message === null) return null;
   const m = message as Record<string, unknown>;
+  if (m.type === 'avatar') {
+    return typeof m.url === 'string' && safePictureUrl(m.url) === m.url ? { type: 'avatar', url: m.url } : null;
+  }
   if (m.type === 'search') {
     return typeof m.query === 'string' && m.query.trim() && m.query.length <= MAX_BECH32_QUERY_LENGTH ? { type: 'search', query: m.query } : null;
   }

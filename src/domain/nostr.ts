@@ -28,7 +28,22 @@ export interface ProfileResult {
   nip05Verified: boolean;
   /** Normalized Lightning Address from `lud16`, or null when the profile has none. */
   lud16: string | null;
+  /** Profile picture, https only; fetched through the background, never by the page. */
+  picture: string | null;
+  /** The person (whose npub was set in the contacts page) follows this profile. */
+  followed: boolean;
   createdAt: number;
+}
+
+/** A picture URL worth fetching: https, a host name, not absurdly long. */
+export function safePictureUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 1000) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' && url.hostname.includes('.') && !url.username && !url.password ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Longest name search. */
@@ -130,6 +145,8 @@ export function profileFromEvent(event: Event): ProfileResult | null {
     nip05: nip05 && parseNip05(nip05) ? nip05.toLowerCase() : null,
     nip05Verified: false,
     lud16: lud ? `${lud.name}@${lud.domain}` : null,
+    picture: safePictureUrl(content.picture),
+    followed: false,
     createdAt: event.created_at,
   };
 }
@@ -147,8 +164,9 @@ export function latestProfiles(events: Event[]): ProfileResult[] {
 }
 
 /**
- * Order results: an exact npub/NIP-05 hit first, then verified NIP-05, then
- * profiles that can be paid, then by how well the name matches.
+ * Order results: an exact npub/NIP-05 hit first, then people the person
+ * follows, then verified NIP-05, then profiles that can be paid, then by how
+ * well the name matches.
  */
 export function rankProfiles(profiles: ProfileResult[], query: string): ProfileResult[] {
   const q = query.trim().toLowerCase();
@@ -161,6 +179,7 @@ export function rankProfiles(profiles: ProfileResult[], query: string): ProfileR
   };
   const score = (p: ProfileResult) =>
     (p.nip05 === q && p.nip05Verified ? 1000 : 0)
+    + (p.followed ? 500 : 0)
     + (p.nip05Verified ? 100 : 0)
     + (p.lud16 ? 50 : 0)
     + nameScore(p) * 10;
@@ -170,4 +189,12 @@ export function rankProfiles(profiles: ProfileResult[], query: string): ProfileR
 /** Short npub for display: `npub1abcd…wxyz`. */
 export function shortNpub(npub: string): string {
   return npub.length > 20 ? `${npub.slice(0, 10)}…${npub.slice(-6)}` : npub;
+}
+
+/** The followed pubkeys in a kind-3 contact list; empty unless correctly signed. */
+export function followsFromEvent(event: Event): string[] {
+  if (event?.kind !== 3) return [];
+  const { id, pubkey, created_at, kind, tags, content, sig } = event;
+  if (!verifyEvent({ id, pubkey, created_at, kind, tags, content, sig })) return [];
+  return [...new Set(tags.filter(t => t[0] === 'p' && HEX_PUBKEY.test(t[1] ?? '')).map(t => t[1]))];
 }

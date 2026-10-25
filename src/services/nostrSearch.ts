@@ -10,11 +10,11 @@ import type { Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { SimplePool } from 'nostr-tools/pool';
 import {
-  MAX_SEARCH_RESULTS, NIP05_VERIFY_LIMIT, NOSTR_QUERY_MAX_WAIT_MS, PROFILE_RELAYS, SEARCH_RELAYS,
+  MAX_SEARCH_RESULTS, NIP05_TIMEOUT_MS, NIP05_VERIFY_LIMIT, NOSTR_QUERY_MAX_WAIT_MS, PROFILE_RELAYS, SEARCH_RELAYS,
 } from '../constants.ts';
 import { assertPublicHttpsUrl } from '../domain/lnurl.ts';
 import {
-  latestProfiles, parseNip05, parseSearchQuery, pubkeyFromNostrJson, rankProfiles, type ProfileResult,
+  followsFromEvent, latestProfiles, parseNip05, parseSearchQuery, pubkeyFromNostrJson, rankProfiles, type ProfileResult,
 } from '../domain/nostr.ts';
 import { fetchCappedJson, type FetchFn } from './http.ts';
 
@@ -23,6 +23,8 @@ export type RelayQuery = (relays: string[], filter: Filter) => Promise<Event[]>;
 export interface SearchDeps {
   query: RelayQuery;
   fetchFn: FetchFn;
+  /** Pubkeys the person follows (empty when they set no npub); ranks those first. */
+  follows?: () => Promise<Set<string>>;
 }
 
 /** A relay query backed by a short-lived pool, with a hard deadline. */
@@ -48,7 +50,7 @@ export async function resolveNip05(identifier: string, fetchFn: FetchFn): Promis
   if (!parsed) return null;
   try {
     const url = assertPublicHttpsUrl(`https://${parsed.domain}/.well-known/nostr.json?name=${encodeURIComponent(parsed.name)}`);
-    return pubkeyFromNostrJson(await fetchCappedJson(url.toString(), fetchFn, 'NIP-05'), parsed.name);
+    return pubkeyFromNostrJson(await fetchCappedJson(url.toString(), fetchFn, 'NIP-05', NIP05_TIMEOUT_MS), parsed.name);
   } catch {
     return null;
   }
@@ -90,8 +92,43 @@ export async function searchProfiles(input: string, deps: SearchDeps): Promise<P
     profiles = latestProfiles(await deps.query(SEARCH_RELAYS, { kinds: [0], search: query.text, limit: MAX_SEARCH_RESULTS }));
   }
 
+  const follows = await (deps.follows?.() ?? Promise.resolve(new Set<string>())).catch(() => new Set<string>());
+  for (const profile of profiles) profile.followed = follows.has(profile.pubkey);
+
   // Rank once to pick which NIP-05s are worth checking, then again with the results.
   profiles = rankProfiles(profiles, query.kind === 'text' ? query.text : '').slice(0, MAX_SEARCH_RESULTS);
   await verifyNip05(profiles, deps.fetchFn, known);
   return rankProfiles(profiles, query.kind === 'text' ? query.text : known?.identifier ?? '');
+}
+
+/** The follow list (kind 3) of `pubkey`, newest correctly signed one. */
+export async function fetchFollows(pubkey: string, query: RelayQuery): Promise<string[]> {
+  const events = (await query(PROFILE_RELAYS, { kinds: [3], authors: [pubkey], limit: 3 }))
+    .filter(e => e.pubkey === pubkey)
+    .sort((a, b) => b.created_at - a.created_at);
+  for (const event of events) {
+    const follows = followsFromEvent(event);
+    if (follows.length || event.tags.length === 0) return follows;
+  }
+  return [];
+}
+
+/** Remember search results for a while: typing back and forth repeats queries. */
+export function cachedSearch(
+  search: (input: string) => Promise<ProfileResult[]>,
+  ttlMs: number,
+  now: () => number = Date.now,
+): (input: string) => Promise<ProfileResult[]> {
+  const cache = new Map<string, { at: number; results: Promise<ProfileResult[]> }>();
+  return input => {
+    const key = input.trim().toLowerCase();
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < ttlMs) return hit.results;
+    const results = search(input);
+    cache.set(key, { at: now(), results });
+    // Failures are not cached; the next keystroke tries again.
+    results.catch(() => cache.delete(key));
+    if (cache.size > 100) cache.delete(cache.keys().next().value!);
+    return results;
+  };
 }
