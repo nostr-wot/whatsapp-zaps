@@ -5,7 +5,7 @@
  * particular "one invoice, one payment attempt, never retried" — can be tested
  * without WhatsApp, a wallet or the network.
  */
-import { parseZapCommand, zapMessage, type Mention } from './domain/command.ts';
+import { normalizeText, parseZapCommand, zapMessage, type Mention } from './domain/command.ts';
 import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore } from './domain/mappings.ts';
 import type { RecipientInfo } from './domain/messages.ts';
 import type { PayOutcome } from './domain/bridge.ts';
@@ -22,6 +22,21 @@ export interface ConfirmDetails {
   recipient: RecipientInfo;
   amountSats: number;
   comment: string;
+  /** The message that would be posted in the chat once the payment is confirmed. */
+  chatMessage: string;
+  /** Whether "post it after paying" starts ticked (the person's last choice). */
+  postByDefault: boolean;
+}
+
+/** The person's answer on the confirm screen. */
+export type ConfirmAnswer = false | { post: boolean };
+
+/** What happened in the chat after a confirmed payment. */
+export interface ChatAftermath {
+  /** The `/zap` command is gone from the message box. */
+  commandCleared: boolean;
+  /** 'sent': the message was posted; 'not_sent': it could not be (shown for copying); null: not asked for. */
+  message: 'sent' | 'not_sent' | null;
 }
 
 export interface AddressAnswer {
@@ -42,10 +57,12 @@ export interface ZapUi {
   /** Pick one of several contacts that share a name. Null when cancelled. */
   choose(name: string, candidates: Candidate[]): Promise<Candidate | null>;
   showLoading(message: string): void;
-  /** Show the payment summary. True when the user confirms. */
-  confirm(details: ConfirmDetails): Promise<boolean>;
-  /** Show the result. Resolves 'insert' when the user wants the chat message. */
-  showResult(outcome: PayOutcome, details: ConfirmDetails): Promise<'insert' | 'close'>;
+  /** Show the payment summary. False when cancelled, otherwise whether to post the message after paying. */
+  confirm(details: ConfirmDetails): Promise<ConfirmAnswer>;
+  /** The same command was paid moments ago: ask before paying again. True to pay again. */
+  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number }): Promise<boolean>;
+  /** Show the result, and for a confirmed payment what happened in the chat. */
+  showResult(outcome: PayOutcome, details: ConfirmDetails, aftermath: ChatAftermath | null): Promise<void>;
   /** Show an error that ended the flow before anything was paid. */
   showError(message: string): Promise<void>;
   close(): void;
@@ -58,10 +75,23 @@ export interface ZapDeps {
   resolve(address: string): Promise<RecipientInfo>;
   invoice(address: string, amountSats: number, comment: string): Promise<{ bolt11: string; amountSats: number }>;
   pay(bolt11: string): Promise<PayOutcome>;
-  /** Replace the composer text with the post-zap message (not sent). */
-  insertMessage(text: string): void;
-  /** Remove the `/zap` command from the composer. */
-  clearComposer(): void;
+  /** Replace the `/zap` command in the box with `text` and send it. True once sent. */
+  postMessage(text: string): Promise<boolean>;
+  /** Remove the `/zap` command from the box. True once the box was checked empty. */
+  clearComposer(): Promise<boolean>;
+  /** When this exact command was last paid in this chat (ms epoch), if recently. */
+  lastPaid(commandKey: string): number | null;
+  /** Remember that this command was paid, so a repeat asks first. */
+  markPaid(commandKey: string): void;
+  /** Remember whether the person wants the message posted after paying. */
+  setPostPreference(post: boolean): void;
+  postByDefault: boolean;
+  now?: () => number;
+}
+
+/** A command plus where it was typed: the same text in another chat is a different zap. */
+export function commandKey(text: string, chatKey: string | null): string {
+  return `${chatKey ?? '?'}|${normalizeText(text).toLowerCase()}`;
 }
 
 export interface ChatContext {
@@ -138,7 +168,11 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
       deps.ui.close();
       return 'cancelled';
     }
-    const details: ConfirmDetails = { name: recipient.label, recipient: picked.info, amountSats, comment };
+    const details: ConfirmDetails = {
+      name: recipient.label, recipient: picked.info, amountSats, comment,
+      chatMessage: zapMessage(recipient.label, amountSats),
+      postByDefault: deps.postByDefault,
+    };
 
     if (amountSats < picked.info.minSats || amountSats > picked.info.maxSats) {
       await deps.ui.showError(
@@ -150,10 +184,24 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
       return 'error';
     }
 
-    if (!(await deps.ui.confirm(details))) {
+    // The same command, just paid: almost always a box that was not cleared, not a second zap.
+    const key = commandKey(text, chat.chatKey);
+    const paidAt = deps.lastPaid(key);
+    if (paidAt !== null) {
+      const minutesAgo = Math.max(0, Math.round(((deps.now?.() ?? Date.now()) - paidAt) / 60_000));
+      if (!(await deps.ui.confirmRepeat(minutesAgo, { name: recipient.label, amountSats }))) {
+        await deps.clearComposer();
+        deps.ui.close();
+        return 'cancelled';
+      }
+    }
+
+    const answer = await deps.ui.confirm(details);
+    if (!answer) {
       deps.ui.close();
       return 'cancelled';
     }
+    deps.setPostPreference(answer.post);
 
     deps.ui.showLoading('Requesting invoice…');
     const invoice = await deps.invoice(picked.address, amountSats, comment);
@@ -163,9 +211,21 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     const outcome: PayOutcome = await deps.pay(invoice.bolt11)
       .catch((err: unknown) => ({ outcome: 'unknown' as const, error: errorMessage(err) }));
 
-    if (outcome.outcome === 'paid') deps.clearComposer();
-    const choice = await deps.ui.showResult(outcome, details);
-    if (outcome.outcome === 'paid' && choice === 'insert') deps.insertMessage(zapMessage(recipient.label, amountSats));
+    // Only a confirmed payment (the wallet returned its proof) touches the chat.
+    let aftermath: ChatAftermath | null = null;
+    if (outcome.outcome === 'paid') {
+      deps.markPaid(key);
+      if (answer.post) {
+        deps.ui.showLoading('Paid. Posting in the chat…');
+        const sent = await deps.postMessage(details.chatMessage).catch(() => false);
+        aftermath = sent
+          ? { commandCleared: true, message: 'sent' }
+          : { commandCleared: await deps.clearComposer().catch(() => false), message: 'not_sent' };
+      } else {
+        aftermath = { commandCleared: await deps.clearComposer().catch(() => false), message: null };
+      }
+    }
+    await deps.ui.showResult(outcome, details, aftermath);
     deps.ui.close();
     return outcome.outcome;
   } catch (err) {

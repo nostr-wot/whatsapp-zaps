@@ -23,6 +23,7 @@ import { bech32 } from '@scure/base';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
+import { build } from 'esbuild';
 import { PROFILE_RELAYS, SEARCH_RELAYS } from '../src/constants.ts';
 
 const dist = resolve('dist');
@@ -46,11 +47,17 @@ const relayRequests = [];
 
 const requests = [];
 const fixture = readFileSync('tests/fixtures/whatsapp-chat.html', 'utf8');
+// `?lexical=1` serves the chat with a real Lexical editor as its message box.
+const lexicalBundle = (await build({ entryPoints: ['tests/fixtures/lexical-composer.ts'], bundle: true, format: 'iife', write: false })).outputFiles[0].text;
+const lexicalFixture = fixture
+  .replace('<body>', '<body><div id="sent" aria-label="Sent messages"></div>')
+  .replace('</body>', '<script src="/lexical-composer.js"></script></body>');
 const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: readFileSync(join(dir, 'cert.pem')) }, (req, res) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   requests.push(`${url.host}${url.pathname}${url.search}`);
   const json = body => { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(body)); };
-  if (url.host === 'web.whatsapp.com') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(fixture); }
+  if (url.host === 'web.whatsapp.com' && url.pathname === '/lexical-composer.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(lexicalBundle); }
+  if (url.host === 'web.whatsapp.com') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(url.searchParams.has('lexical') ? lexicalFixture : fixture); }
   if (url.host === 'nostr.example' && url.pathname === '/.well-known/nostr.json') return json({ names: { ana: anaPubkey } });
   if (url.pathname === '/.well-known/lnurlp/ana') {
     return json({ tag: 'payRequest', callback: 'https://wallet.example/cb/ana', minSendable: 1000, maxSendable: 1e9, metadata: METADATA, commentAllowed: 50 });
@@ -201,12 +208,15 @@ try {
   assert.deepEqual(calls, ['enable', `pay:${invoiceFor(1000)}`]);
   assert.ok(requests.includes('wallet.example/cb/ana?amount=1000000&comment=gracias'), requests.join('\n'));
 
-  // 4. Add the chat message to the composer (not sent).
+  // 4. This plain page has no working send, so the message is offered for copying,
+  //    and the /zap command is still cleared from the box.
+  assert.match(result, /Payment confirmed/);
+  assert.match(result, /could not be posted/);
+  assert.doesNotMatch(result, /still in the message box/);
   await page.keyboard.press('Enter');
   await new Promise(r => setTimeout(r, 300));
   assert.equal(await dialogText(), null, 'dialog should close');
-  const composerText = await page.$eval('footer [contenteditable="true"]', el => el.textContent);
-  assert.equal(composerText, '⚡ Zapped @Ana Paula 1,000 sats');
+  assert.equal(await page.$eval('footer [contenteditable="true"]', el => el.textContent.trim()), '');
 
   // 5. The mapping was saved for this chat, keyed by the mention's contact id.
   const stored = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
@@ -271,7 +281,7 @@ try {
   await shot('6-linked-dark');
   await page.emulateMedia({ colorScheme: 'light' });
 
-  // 9. Private chat: `/zap 21` with no mention pays the linked contact; the command shows purple.
+  // 9. Private chat: `/zap 21` with no mention pays the linked contact; the command shows in green.
   await clickInDialog(/^Close$/);
   await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
   await page.evaluate(() => {
@@ -282,8 +292,8 @@ try {
   });
   await page.waitForSelector('[data-whatsapp-zaps-command]');
   const color = await page.$eval('footer [contenteditable="true"] span', el => getComputedStyle(el).color);
-  assert.equal(color, 'rgb(124, 58, 237)', 'command shows in zap purple');
-  await shot('7-purple-command');
+  assert.equal(color, 'rgb(0, 128, 105)', 'command shows in WhatsApp green');
+  await shot('7-green-command');
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   const privateConfirm = await waitForDialog(/Confirm zap/);
@@ -304,6 +314,77 @@ try {
   await clickInDialog(/^Close$/);
   await new Promise(r => setTimeout(r, 200));
   assert.equal(await dialogText(), null);
+
+  // 11. A real Lexical message box (as on WhatsApp): `/zap 21 thanks` in a private chat
+  //     is paid, the ⚡ message is posted only then, and typing the command again warns.
+  await worker.evaluate(async pubkey => {
+    const { zapMappings } = await chrome.storage.local.get('zapMappings');
+    zapMappings.global['id:5491100000000@c.us'] = { address: 'ana@wallet.example', displayName: 'Ana Paula', updatedAt: 1, pubkey };
+    await chrome.storage.local.set({ zapMappings });
+  }, anaPubkey);
+  const lex = await context.newPage();
+  await lex.addInitScript(() => {
+    const calls = (window.__weblnCalls = []);
+    window.webln = {
+      enabled: false,
+      async enable() { calls.push('enable'); this.enabled = true; },
+      async sendPayment(pr) { calls.push(`pay:${pr}`); await new Promise(r => setTimeout(r, 200)); return { preimage: 'cd'.repeat(32) }; },
+    };
+  });
+  await lex.goto('https://web.whatsapp.com/?lexical=1&text=' + encodeURIComponent('/zap 21 thanks'));
+  await lex.waitForFunction(() => window.__lexicalReady);
+  await lex.evaluate(() => {
+    for (const row of document.querySelectorAll('#main [data-id]')) row.setAttribute('data-id', 'false_5491100000000@c.us_3EB0CC');
+  });
+  const lexCdp = await context.newCDPSession(lex);
+  const lexDialog = async pattern => {
+    const deadline = Date.now() + 10_000;
+    let last = null;
+    while (Date.now() < deadline) {
+      const { root } = await lexCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+      const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+      const out = [];
+      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+      last = host ? out.join(' ') : null;
+      if (pattern === null ? last === null : last !== null && pattern.test(last)) return last;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    throw new Error(`Lexical page dialog never matched ${pattern}; last: ${last}`);
+  };
+  const lexBox = 'footer [contenteditable="true"]';
+  const lexText = () => lex.$eval(lexBox, el => el.textContent);
+  const sent = () => lex.$$eval('.sent-message', els => els.map(e => e.textContent));
+  await lex.click(lexBox);
+  await lex.keyboard.press('End');
+  await lex.keyboard.press('Enter');
+  const lexConfirm = await lexDialog(/Confirm zap/);
+  assert.match(lexConfirm, /21 sats .*Post in the chat once the payment is confirmed.*⚡ Zapped @Friends & Family 21 sats/s);
+  assert.deepEqual(await sent(), [], 'the command itself was not sent');
+  await lex.keyboard.press('Enter'); // Pay
+  // Nothing is posted while the wallet is still paying.
+  await new Promise(r => setTimeout(r, 80));
+  assert.deepEqual(await sent(), [], 'no message before the payment is confirmed');
+  const lexResult = await lexDialog(/Zap sent/);
+  console.log('lexical result:', lexResult);
+  assert.match(lexResult, /Payment confirmed.*Posted in the chat/s);
+  assert.deepEqual(await sent(), ['⚡ Zapped @Friends & Family 21 sats']);
+  assert.equal((await lexText()).trim(), '', 'box empty after posting');
+  assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2);
+  if (shotDir) await lex.screenshot({ path: join(shotDir, '9-lexical-posted.png') });
+  await lex.keyboard.press('Enter'); // Close
+  await lexDialog(null);
+  // Typing the same command again: warned, not paid.
+  await lex.click(lexBox);
+  await lex.keyboard.type('/zap 21 thanks');
+  await lex.keyboard.press('Enter');
+  const repeat = await lexDialog(/Already paid/);
+  console.log('repeat:', repeat);
+  if (shotDir) await lex.screenshot({ path: join(shotDir, '10-repeat.png') });
+  await lex.keyboard.press('Enter'); // "Don't pay again" is focused
+  await lexDialog(null);
+  assert.equal((await lexText()).trim(), '', 'leftover command removed');
+  assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2, 'no second payment');
+  assert.deepEqual(await sent(), ['⚡ Zapped @Friends & Family 21 sats']);
 
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();

@@ -23,6 +23,15 @@ export const MAX_COMMENT_LENGTH = 280;
 
 export const MAPPINGS_STORAGE_KEY = 'zapMappings';
 
+/** Commands paid recently, `{ "<chat>|<command>": paidAtMs }`. */
+export const RECENT_ZAPS_KEY = 'recentZaps';
+
+/** Whether to post the ⚡ message after a confirmed payment (the last choice made). */
+export const POST_PREFERENCE_KEY = 'postZapMessage';
+
+/** How long the same command in the same chat asks before being paid again. */
+export const REPEAT_WINDOW_MS = 30 * 60_000;
+
 // ── MAIN ↔ ISOLATED bridge ──
 
 export const BRIDGE_REQUEST = 'WAZAPS_PAY_REQUEST';

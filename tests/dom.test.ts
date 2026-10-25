@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installDom } from './helpers/dom.ts';
 import {
-  findComposer, findSendButton, isSendButton, mentionId, readChatContact, readChatId, readChatKey, readChatTitle, readComposerText, readMentions, setComposerText,
+  findComposer, findSendButton, isSendButton, mentionId, readChatContact, readChatId, readChatKey, readChatTitle, readComposerText, readMentions, composerHolds,
 } from '../src/whatsapp/dom.ts';
 import { parseZapCommand } from '../src/domain/command.ts';
 
@@ -55,15 +55,15 @@ describe('WhatsApp DOM adapter', () => {
     assert.equal(mentionId(el), '123@c.us');
   });
 
-  it('replaces composer text through execCommand so Lexical sees it', () => {
+  it('compares the box to a text, ignoring invisible marks and spacing', () => {
     const composer = findComposer()!;
-    const calls: Array<[string, string | undefined]> = [];
-    (document as unknown as { execCommand: unknown }).execCommand = (cmd: string, _ui: boolean, value?: string) => { calls.push([cmd, value]); return true; };
-    setComposerText(composer, '');
-    setComposerText(composer, '⚡ Zapped @Ana 1 sats');
-    assert.deepEqual(calls, [['delete', undefined], ['insertText', '⚡ Zapped @Ana 1 sats']]);
-    assert.equal(document.getSelection()?.anchorNode, composer);
+    composer.innerHTML = '<p><span>\u2068⚡ Zapped</span>  <span>@Ana\u2069 1 sats</span></p>';
+    assert.equal(composerHolds(composer, '⚡ Zapped @Ana 1 sats'), true);
+    assert.equal(composerHolds(composer, '⚡ Zapped @Ana 2 sats'), false);
+    composer.innerHTML = '<p><br></p>';
+    assert.equal(composerHolds(composer, ''), true);
   });
+
 });
 
 describe('readChatContact', () => {

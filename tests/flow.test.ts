@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runZap, type ZapDeps, type ZapUi, type AddressAnswer, type Candidate } from '../src/flow.ts';
+import { commandKey, runZap, type ZapDeps, type ZapUi, type AddressAnswer, type Candidate } from '../src/flow.ts';
 import { emptyStore, saveMapping, type MappingStore } from '../src/domain/mappings.ts';
 import type { RecipientInfo } from '../src/domain/messages.ts';
 import type { PayOutcome } from '../src/domain/bridge.ts';
@@ -14,7 +14,12 @@ interface Script {
   addresses?: Array<AddressAnswer | null>;
   choose?: (c: Candidate[]) => Candidate | null;
   confirm?: boolean;
-  resultChoice?: 'insert' | 'close';
+  /** Tick "post in the chat" on the confirm screen (default true). */
+  post?: boolean;
+  postOk?: boolean;
+  clearOk?: boolean;
+  paidBefore?: number | null;
+  payAgain?: boolean;
   resolve?: (address: string) => Promise<RecipientInfo>;
   pay?: (bolt11: string) => Promise<PayOutcome>;
 }
@@ -26,8 +31,14 @@ function setup(script: Script = {}) {
     askAddress: async (name, title, error) => { log.push(`ask:${name}:${title}${error ? `:${error}` : ''}`); return addresses.shift() ?? null; },
     choose: async (_n, c) => { log.push(`choose:${c.length}`); return script.choose ? script.choose(c) : null; },
     showLoading: m => { log.push(`loading:${m}`); },
-    confirm: async d => { log.push(`confirm:${d.recipient.address}:${d.amountSats}:${d.comment}`); return script.confirm ?? true; },
-    showResult: async o => { log.push(`result:${o.outcome}`); return script.resultChoice ?? 'close'; },
+    confirm: async d => {
+      log.push(`confirm:${d.recipient.address}:${d.amountSats}:${d.comment}`);
+      return script.confirm === false ? false : { post: script.post ?? true };
+    },
+    confirmRepeat: async (minutes, d) => { log.push(`repeat:${minutes}:${d.name}:${d.amountSats}`); return script.payAgain ?? false; },
+    showResult: async (o, _d, after) => {
+      log.push(`result:${o.outcome}${after ? `:${after.message}:${after.commandCleared ? 'cleared' : 'not-cleared'}` : ''}`);
+    },
     showError: async m => { log.push(`error:${m}`); },
     close: () => { log.push('close'); },
   };
@@ -41,8 +52,13 @@ function setup(script: Script = {}) {
     resolve: script.resolve ?? (async a => info(a)),
     invoice: async (address, amountSats, comment) => { log.push(`invoice:${address}:${amountSats}:${comment}`); return { bolt11: 'lnbc1inv', amountSats }; },
     pay: script.pay ?? (async b => { log.push(`pay:${b}`); return { outcome: 'paid', preimage: 'p' }; }),
-    insertMessage: t => { log.push(`insert:${t}`); },
-    clearComposer: () => { log.push('clear'); },
+    postMessage: async t => { log.push(`post:${t}`); return script.postOk ?? true; },
+    clearComposer: async () => { log.push('clear'); return script.clearOk ?? true; },
+    lastPaid: key => { log.push(`lastPaid:${key}`); return script.paidBefore ?? null; },
+    markPaid: key => { log.push(`markPaid:${key}`); },
+    postByDefault: true,
+    setPostPreference: post => { log.push(`prefer:${post}`); },
+    now: () => 10 * 60_000,
   };
   return { deps, log, saved };
 }
@@ -51,18 +67,21 @@ const known = saveMapping(emptyStore(), { kind: 'global' }, 'name:alice', 'Alice
 
 describe('runZap', () => {
   it('pays a known recipient once and offers the chat message', async () => {
-    const { deps, log } = setup({ store: known, resultChoice: 'insert' });
+    const { deps, log } = setup({ store: known });
     assert.equal(await runZap('/zap @Alice 1000 lunch', [], CHAT, deps), 'paid');
     assert.deepEqual(log, [
       'loading:Looking up alice@w.example…',
+      'lastPaid:jid:1@g.us|/zap @alice 1000 lunch',
       'confirm:alice@w.example:1000:lunch',
+      'prefer:true',
       'loading:Requesting invoice…',
       'invoice:alice@w.example:1000:lunch',
       'loading:Waiting for your wallet…',
       'pay:lnbc1inv',
-      'clear',
-      'result:paid',
-      'insert:⚡ Zapped @Alice 1,000 sats',
+      'markPaid:jid:1@g.us|/zap @alice 1000 lunch',
+      'loading:Paid. Posting in the chat…',
+      'post:⚡ Zapped @Alice 1,000 sats',
+      'result:paid:sent:cleared',
       'close',
     ]);
   });
@@ -169,16 +188,58 @@ describe('runZap', () => {
     const { deps, log } = setup({ store: known, pay: async () => ({ outcome: 'not_paid', error: 'Payment denied by user' }) });
     assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'not_paid');
     assert.equal(log.includes('clear'), false);
-    assert.equal(log.some(l => l.startsWith('insert')), false);
+    assert.equal(log.some(l => l.startsWith('post:')), false, 'nothing posted without a confirmed payment');
+    assert.equal(log.some(l => l.startsWith('markPaid')), false);
   });
 
   it('never retries: a throwing payer is one attempt with an unknown outcome', async () => {
     let attempts = 0;
-    const { deps, log } = setup({ store: known, resultChoice: 'insert', pay: async () => { attempts++; throw new Error('bridge gone'); } });
+    const { deps, log } = setup({ store: known, pay: async () => { attempts++; throw new Error('bridge gone'); } });
     assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'unknown');
     assert.equal(attempts, 1);
     assert.equal(log.filter(l => l.startsWith('invoice')).length, 1);
-    assert.equal(log.some(l => l.startsWith('insert')), false);
+    assert.equal(log.some(l => l.startsWith('post:')), false, 'an unknown outcome posts nothing');
+    assert.equal(log.includes('result:unknown'), true);
+  });
+
+  it('only clears the command when posting was not asked for', async () => {
+    const { deps, log } = setup({ store: known, post: false });
+    assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'paid');
+    assert.ok(log.includes('prefer:false'));
+    assert.equal(log.some(l => l.startsWith('post:')), false);
+    assert.ok(log.includes('result:paid:null:cleared'));
+  });
+
+  it('when posting fails, still clears the command and says so', async () => {
+    const { deps, log } = setup({ store: known, postOk: false });
+    await runZap('/zap @Alice 5', [], CHAT, deps);
+    assert.ok(log.includes('clear'));
+    assert.ok(log.includes('result:paid:not_sent:cleared'));
+  });
+
+  it('warns when the command could not be removed from the box', async () => {
+    const { deps, log } = setup({ store: known, post: false, clearOk: false });
+    await runZap('/zap @Alice 5', [], CHAT, deps);
+    assert.ok(log.includes('result:paid:null:not-cleared'));
+  });
+
+  it('asks before paying the same command again, and stops by default', async () => {
+    const { deps, log } = setup({ store: known, paidBefore: 7 * 60_000 });
+    assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'cancelled');
+    assert.ok(log.includes('repeat:3:Alice:5'));
+    assert.ok(log.includes('clear'), 'the leftover command is removed');
+    assert.equal(log.some(l => l.startsWith('confirm:') || l.startsWith('invoice')), false);
+  });
+
+  it('pays again only when the person says so', async () => {
+    const { deps, log } = setup({ store: known, paidBefore: 9 * 60_000, payAgain: true });
+    assert.equal(await runZap('/zap @Alice 5', [], CHAT, deps), 'paid');
+    assert.ok(log.includes('repeat:1:Alice:5'));
+  });
+
+  it('keys repeats by chat and command text', () => {
+    assert.equal(commandKey(' /ZAP  @Alice 5 ', 'jid:1@g.us'), 'jid:1@g.us|/zap @alice 5');
+    assert.notEqual(commandKey('/zap @Alice 5', 'jid:1@g.us'), commandKey('/zap @Alice 5', 'jid:2@g.us'));
   });
 
   it('reports an invoice failure as an error without paying', async () => {

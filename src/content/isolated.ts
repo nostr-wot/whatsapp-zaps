@@ -13,7 +13,8 @@ import { runLinkPopup } from '../linkFlow.ts';
 import { loadMappings, updateMappings } from '../services/mappingStore.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
-import { readChatContact, readChatKey, readChatTitle, setComposerText } from '../whatsapp/dom.ts';
+import { findComposer, readChatContact, readChatKey, readChatTitle, replaceComposerText, sendComposer } from '../whatsapp/dom.ts';
+import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
@@ -44,6 +45,21 @@ function pay(bolt11: string): Promise<PayOutcome> {
   });
 }
 
+// Commands paid recently, kept across reloads so a command left in the box
+// cannot be paid twice without a warning.
+let recentZaps: Record<string, number> = {};
+let postByDefault = true;
+void chrome.storage.local.get([RECENT_ZAPS_KEY, POST_PREFERENCE_KEY]).then(stored => {
+  const now = Date.now();
+  const saved = stored[RECENT_ZAPS_KEY];
+  if (saved && typeof saved === 'object') {
+    for (const [key, at] of Object.entries(saved as Record<string, unknown>)) {
+      if (typeof at === 'number' && now - at < REPEAT_WINDOW_MS) recentZaps[key] = at;
+    }
+  }
+  if (typeof stored[POST_PREFERENCE_KEY] === 'boolean') postByDefault = stored[POST_PREFERENCE_KEY];
+});
+
 let busy = false;
 const dialog = new ZapDialog({
   onClosed: () => { busy = false; },
@@ -67,8 +83,36 @@ installInterceptor(({ text, mentions, composer }) => {
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
     invoice: (address, amountSats, comment) => ask<ResolvedInvoice>({ type: 'invoice', address, amountSats, comment }),
     pay,
-    clearComposer: () => { setComposerText(composer, ''); updateHighlight(); },
-    insertMessage: message => { setComposerText(composer, message); updateHighlight(); },
+    // WhatsApp may have re-rendered the box while the dialog was open.
+    clearComposer: async () => {
+      const box = findComposer() ?? composer;
+      const cleared = await replaceComposerText(box, '');
+      updateHighlight();
+      return cleared;
+    },
+    postMessage: async message => {
+      const box = findComposer() ?? composer;
+      // Never send unless the box holds exactly this message: anything else
+      // (a half-replaced /zap command above all) must not go out.
+      const ready = await replaceComposerText(box, message);
+      updateHighlight();
+      return ready && sendComposer(box);
+    },
+    lastPaid: key => {
+      const at = recentZaps[key];
+      return at !== undefined && Date.now() - at < REPEAT_WINDOW_MS ? at : null;
+    },
+    markPaid: key => {
+      const now = Date.now();
+      recentZaps = Object.fromEntries(Object.entries(recentZaps).filter(([, at]) => now - at < REPEAT_WINDOW_MS));
+      recentZaps[key] = now;
+      void chrome.storage.local.set({ [RECENT_ZAPS_KEY]: recentZaps });
+    },
+    postByDefault,
+    setPostPreference: post => {
+      postByDefault = post;
+      void chrome.storage.local.set({ [POST_PREFERENCE_KEY]: post });
+    },
   }).finally(() => { busy = false; });
 }, () => busy);
 

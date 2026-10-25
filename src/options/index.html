@@ -6,27 +6,28 @@
   <title>WhatsApp Web Zaps</title>
   <style>
     :root {
-      --ground: #f7f5fc; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9e4f5;
-      --tint: #f5f1ff; --tint-line: #e2d9fb;
-      --zap: #7c3aed; --zap-strong: #6d28d9; --zap-fg: #ffffff; --zap-soft: #ede7fe;
-      --ok: #0a7d5a; --ok-soft: #e3f6ee; --bad: #c62828;
+      /* WhatsApp Web's palette. */
+      --ground: #f0f2f5; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef;
+      --tint: #f0f2f5; --tint-line: #e9edef;
+      --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
+      --ok: #008069; --ok-soft: #d9fdd3; --bad: #ea0038;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --ground: #0b141a; --card: #1f2c34; --fg: #e9edef; --muted: #8696a0; --line: #2f3d46;
-        --tint: #261f3d; --tint-line: #3a2f5c;
-        --zap: #a78bfa; --zap-strong: #c4b5fd; --zap-fg: #1a1033; --zap-soft: #2e2550;
-        --ok: #34d399; --ok-soft: #12352b; --bad: #f28b82;
+        --ground: #0b141a; --card: #111b21; --fg: #e9edef; --muted: #8696a0; --line: #222d34;
+        --tint: #202c33; --tint-line: #2a3942;
+        --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
+        --ok: #06cf9c; --ok-soft: #0b3b33; --bad: #f15c6d;
         color-scheme: dark;
       }
     }
-    body { margin: 0; background: var(--ground); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-inline: 16px; }
+    body { margin: 0; background: var(--ground); color: var(--fg); font: 14.2px/1.5 "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif; padding-inline: 16px; }
     main { max-width: 760px; margin: 0 auto; padding-block: 32px 56px; display: grid; gap: 20px; }
     header h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px; }
     header h1::before { content: "⚡"; display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--zap); color: var(--zap-fg); font-size: 20px; }
     p.lead, .muted { color: var(--muted); }
     p.lead { margin: 0; max-width: 62ch; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--tint); color: var(--zap-strong); border-radius: 6px; padding: 1px 6px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--zap-soft); color: var(--fg); border-radius: 6px; padding: 1px 6px; }
     section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
     h2 { font-size: 16px; font-weight: 650; margin: 0 0 4px; }
     h2 + p { margin: 0 0 14px; }

@@ -5,7 +5,7 @@
  */
 import { isLightningAddress } from '../domain/lnurl.ts';
 import type { PayOutcome } from '../domain/bridge.ts';
-import type { AddressAnswer, Candidate, ConfirmDetails, ZapUi } from '../flow.ts';
+import type { AddressAnswer, Candidate, ChatAftermath, ConfirmAnswer, ConfirmDetails, ZapUi } from '../flow.ts';
 import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import { npubEncode } from 'nostr-tools/nip19';
 import type { Mapping } from '../domain/mappings.ts';
@@ -15,27 +15,26 @@ import { attachStyles } from './styles.ts';
 const STYLE = `
 :host { all: initial; }
 .backdrop {
-  /* Zap violet on WhatsApp's own neutrals, so the overlay feels native in either theme. */
-  --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9e4f5; --field: #ffffff;
-  --tint: #f5f1ff; --tint-line: #e2d9fb;
-  --zap: #7c3aed; --zap-strong: #6d28d9; --zap-fg: #ffffff; --zap-soft: #ede7fe;
-  --ok: #0a7d5a; --ok-soft: #e3f6ee; --warn: #9a5b00; --warn-soft: #fff4e0; --bad: #c62828; --bad-soft: #fdecea;
-  --scrim: rgba(17, 27, 33, .5); --shadow: 0 24px 60px rgba(32, 16, 64, .28);
+  /* WhatsApp Web's own palette, so the dialog looks like part of WhatsApp. */
+  --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef; --field: #ffffff;
+  --tint: #f0f2f5; --tint-line: #e9edef;
+  --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
+  --ok: #008069; --ok-soft: #d9fdd3; --warn: #a05a00; --warn-soft: #fff3d6; --bad: #ea0038; --bad-soft: #fde8ec;
+  --scrim: rgba(11, 20, 26, .45); --shadow: 0 17px 50px rgba(11, 20, 26, .19), 0 12px 15px rgba(11, 20, 26, .24);
   position: fixed; inset: 0; z-index: 2147483646;
   display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;
   background: var(--scrim); backdrop-filter: blur(2px);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 14.2px/1.45 "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif;
   color: var(--fg);
 }
-@media (prefers-color-scheme: dark) {
-  .backdrop {
-    --card: #1f2c34; --fg: #e9edef; --muted: #8696a0; --line: #2f3d46; --field: #111b21;
-    --tint: #261f3d; --tint-line: #3a2f5c;
-    --zap: #a78bfa; --zap-strong: #c4b5fd; --zap-fg: #1a1033; --zap-soft: #2e2550;
-    --ok: #34d399; --ok-soft: #12352b; --warn: #fbbf24; --warn-soft: #3a2c0c; --bad: #f28b82; --bad-soft: #3d1f1d;
-    --scrim: rgba(0, 0, 0, .6); --shadow: 0 24px 60px rgba(0, 0, 0, .55);
-    color-scheme: dark;
-  }
+/* WhatsApp's dark theme is its own setting (a class on <body>), not the system's. */
+:host-context(body.dark) .backdrop, :host-context([data-theme="dark"]) .backdrop {
+  --card: #233138; --fg: #e9edef; --muted: #8696a0; --line: #313d45; --field: #2a3942;
+  --tint: #202c33; --tint-line: #313d45;
+  --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
+  --ok: #06cf9c; --ok-soft: #0b3b33; --warn: #ffbc2d; --warn-soft: #3a2f12; --bad: #f15c6d; --bad-soft: #3b1d23;
+  --scrim: rgba(0, 0, 0, .6); --shadow: 0 17px 50px rgba(0, 0, 0, .45);
+  color-scheme: dark;
 }
 .card {
   background: var(--card); color: var(--fg);
@@ -75,6 +74,12 @@ input[type="text"] {
 input[type="text"]:focus { outline: none; border-color: var(--zap); box-shadow: 0 0 0 3px var(--zap-soft); }
 input[type="radio"] { accent-color: var(--zap); margin: 0; }
 label.choice { display: flex; gap: 10px; align-items: center; padding: 6px 2px; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--zap); margin: 0; width: 16px; height: 16px; flex: none; }
+label.post { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 0 0 12px; border-radius: 10px; background: var(--tint); cursor: pointer; }
+label.post .preview { display: block; margin-top: 4px; padding: 6px 10px; border-radius: 8px; background: var(--zap-soft); color: var(--fg); font-size: 13.5px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+.copy-box { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.preview-inline { padding: 2px 8px; border-radius: 6px; background: var(--zap-soft); color: var(--fg); }
+.copy-box output { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--zap-soft); user-select: all; overflow-wrap: anywhere; }
 .row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .row input { flex: 1; min-width: 0; }
 #wz-member { margin-bottom: 10px; }
@@ -112,8 +117,8 @@ button.option:disabled { opacity: .55; }
   flex: none; width: 36px; height: 36px; border-radius: 50%;
   display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; text-transform: uppercase;
 }
-.hue-0 { background: #7c3aed; } .hue-1 { background: #0e7490; } .hue-2 { background: #b45309; }
-.hue-3 { background: #be185d; } .hue-4 { background: #15803d; } .hue-5 { background: #4338ca; }
+.hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
+.hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
 .who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .who .name { font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
@@ -583,14 +588,16 @@ export class ZapDialog implements ZapUi, LinkUi {
     });
   }
 
-  confirm(details: ConfirmDetails): Promise<boolean> {
+  confirm(details: ConfirmDetails): Promise<ConfirmAnswer> {
     return new Promise(resolve => {
-      const done = (value: boolean) => { this.onCancel = null; resolve(value); };
+      const done = (value: ConfirmAnswer) => { this.onCancel = null; resolve(value); };
       this.onCancel = () => done(false);
       const cancel = h('button', { type: 'button' }, 'Cancel');
       const pay = h('button', { type: 'button', class: 'primary' }, `Pay ${sats(details.amountSats)}`);
+      const post = h('input', { type: 'checkbox', id: 'wz-post' });
+      post.checked = details.postByDefault;
       this.onClick(cancel, () => done(false));
-      this.onClick(pay, () => done(true));
+      this.onClick(pay, () => done({ post: post.checked }));
       const { recipient } = details;
       this.focusFirst(this.render(
         h('h2', {}, 'Confirm zap'),
@@ -609,41 +616,78 @@ export class ZapDialog implements ZapUi, LinkUi {
           ? h('p', { class: 'warn' }, 'This address does not accept comments; it will not be sent.') : null,
         details.comment && recipient.commentAllowed > 0 && details.comment.length > recipient.commentAllowed
           ? h('p', { class: 'warn' }, `The comment will be cut to ${recipient.commentAllowed} characters.`) : null,
+        h('label', { class: 'post', for: 'wz-post' }, post,
+          h('span', {}, 'Post in the chat once the payment is confirmed',
+            h('span', { class: 'preview' }, details.chatMessage))),
         h('p', { class: 'muted' }, 'Your Nostr WoT wallet pays this and may ask you to approve it.'),
         h('div', { class: 'actions' }, cancel, pay),
       ), 'button.primary');
     });
   }
 
-  showResult(outcome: PayOutcome, details: ConfirmDetails): Promise<'insert' | 'close'> {
+  confirmRepeat(minutesAgo: number, details: { name: string; amountSats: number }): Promise<boolean> {
     return new Promise(resolve => {
-      const done = (value: 'insert' | 'close') => { this.onCancel = null; resolve(value); };
-      this.onCancel = () => done('close');
-      const close = h('button', { type: 'button', class: outcome.outcome === 'paid' ? '' : 'primary' }, 'Close');
-      this.onClick(close, () => done('close'));
+      const done = (value: boolean) => { this.onCancel = null; resolve(value); };
+      this.onCancel = () => done(false);
+      const stop = h('button', { type: 'button', class: 'primary' }, 'Don’t pay again');
+      const again = h('button', { type: 'button' }, 'Pay again');
+      this.onClick(stop, () => done(false));
+      this.onClick(again, () => done(true));
+      const when = minutesAgo < 1 ? 'less than a minute ago' : minutesAgo === 1 ? 'a minute ago' : `${minutesAgo} minutes ago`;
+      this.focusFirst(this.render(
+        h('h2', {}, 'Already paid'),
+        h('div', { class: 'state unsure' },
+          h('p', {}, 'You paid ', h('strong', {}, sats(details.amountSats)), ` to ${details.name} with this same command ${when}.`)),
+        h('p', {}, 'Pay again only if you mean to send a second zap. “Don’t pay again” removes the command from the message box.'),
+        h('div', { class: 'actions' }, again, stop),
+      ), 'button.primary');
+    });
+  }
+
+  showResult(outcome: PayOutcome, details: ConfirmDetails, aftermath: ChatAftermath | null): Promise<void> {
+    return new Promise(resolve => {
+      const done = () => { this.onCancel = null; resolve(); };
+      this.onCancel = done;
+      const close = h('button', { type: 'button', class: 'primary' }, 'Close');
+      this.onClick(close, done);
       let body: Child[];
       if (outcome.outcome === 'paid') {
-        const insert = h('button', { type: 'button', class: 'primary' }, 'Add message to chat');
-        this.onClick(insert, () => done('insert'));
+        const notes: Child[] = [];
+        if (aftermath?.message === 'sent') {
+          notes.push(h('p', { class: 'muted' }, 'Posted in the chat: ', h('span', { class: 'preview-inline' }, details.chatMessage)));
+        } else if (aftermath?.message === 'not_sent') {
+          const copy = h('button', { type: 'button', class: 'small' }, 'Copy');
+          this.onClick(copy, () => {
+            void navigator.clipboard?.writeText(details.chatMessage).then(() => { copy.textContent = 'Copied'; }, () => {});
+          });
+          notes.push(
+            h('p', { class: 'warn' }, 'The message could not be posted in the chat. Copy it and send it yourself:'),
+            h('div', { class: 'copy-box' }, h('output', {}, details.chatMessage), copy),
+          );
+        }
+        if (aftermath && !aftermath.commandCleared) {
+          notes.push(h('div', { class: 'state bad' }, h('p', { class: 'error', role: 'alert' },
+            'The /zap command is still in the message box. Delete it before you press Enter — sending it again would start another zap.')));
+        }
         body = [
           h('h2', {}, 'Zap sent'),
           h('div', { class: 'state good' },
-            h('p', {}, h('strong', {}, sats(details.amountSats)), ` to ${details.name} (${details.recipient.address}).`)),
-          h('p', { class: 'muted' }, 'Add a message to the chat? You can edit it before sending.'),
-          h('div', { class: 'actions' }, close, insert),
+            h('p', {}, h('strong', {}, sats(details.amountSats)), ` to ${details.name} (${details.recipient.address}). Payment confirmed.`)),
+          ...notes,
+          h('div', { class: 'actions' }, close),
         ];
       } else if (outcome.outcome === 'not_paid') {
         body = [
           h('h2', {}, 'Zap not sent'),
           h('div', { class: 'state bad' }, h('p', { class: 'error', role: 'alert' }, outcome.error)),
-          h('p', { class: 'muted' }, 'Nothing was paid. Your command is still in the message box.'),
+          h('p', { class: 'muted' }, 'Nothing was paid and nothing was posted. Your command is still in the message box.'),
           h('div', { class: 'actions' }, close),
         ];
       } else {
         body = [
           h('h2', {}, 'Payment status unknown'),
           h('div', { class: 'state unsure' }, h('p', { class: 'warn', role: 'alert' }, outcome.error)),
-          h('p', {}, 'The payment may have gone through. Check your wallet’s activity in Nostr WoT before you try again — sending the command again would be a second payment.'),
+          h('p', {}, 'The payment may have gone through, so nothing was posted. Check your wallet’s activity in Nostr WoT before you try again — sending the command again would be a second payment.'),
           h('div', { class: 'actions' }, close),
         ];
       }

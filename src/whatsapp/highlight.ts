@@ -1,5 +1,5 @@
 /**
- * Colour the message box purple while it holds a `/zap` command, so it reads
+ * Colour the message box green and bold while it holds a `/zap` command, so it reads
  * as a payment and not as a message about to be sent.
  *
  * WhatsApp's editor (Lexical) owns the text nodes and rewrites them, so the
@@ -12,17 +12,14 @@ import { attachStyles } from '../ui/styles.ts';
 
 export const ZAP_ATTR = 'data-whatsapp-zaps-command';
 
-/** The zap purple, as in the dialogs; a lighter shade on dark backgrounds. */
-export const ZAP_COLOR = '#7c3aed';
-const ZAP_COLOR_DARK = '#b197fc';
+/** WhatsApp's green, as in the dialogs; the brighter shade WhatsApp uses on dark backgrounds. */
+export const ZAP_COLOR = '#008069';
+const ZAP_COLOR_DARK = '#06cf9c';
 
 export const HIGHLIGHT_STYLE = `
 [${ZAP_ATTR}], [${ZAP_ATTR}] * { color: ${ZAP_COLOR} !important; caret-color: ${ZAP_COLOR} !important; }
 [${ZAP_ATTR}] { font-weight: 600; }
-@media (prefers-color-scheme: dark) {
-  [${ZAP_ATTR}], [${ZAP_ATTR}] * { color: ${ZAP_COLOR_DARK} !important; caret-color: ${ZAP_COLOR_DARK} !important; }
-}
-/* WhatsApp's own dark theme, whatever the system says. */
+/* WhatsApp's dark theme is its own setting, a class on <body>. */
 body.dark [${ZAP_ATTR}], body.dark [${ZAP_ATTR}] * { color: ${ZAP_COLOR_DARK} !important; caret-color: ${ZAP_COLOR_DARK} !important; }
 `;
 

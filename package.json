@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-zaps",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Send Lightning zaps from WhatsApp Web with /zap, paid through the Nostr WoT extension's WebLN wallet.",
@@ -16,12 +16,14 @@
     "nostr-tools": ">=2.23.3 <2.25.2"
   },
   "devDependencies": {
+    "@lexical/plain-text": "^0.52.0",
     "@types/chrome": "^0.1.37",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^25.3.3",
     "@types/ws": "^8.18.2",
     "esbuild": "^0.28.2",
     "jsdom": "30.0.1",
+    "lexical": "^0.52.0",
     "playwright": "^1.63.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",

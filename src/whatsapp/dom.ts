@@ -133,24 +133,102 @@ export function readChatKey(doc: Document = document): string | null {
   return title ? `title:${normalizeName(title)}` : null;
 }
 
-/**
- * Replace the composer contents with `text` (empty clears it).
- *
- * Lexical keeps its own model of the editor; editing the DOM directly would
- * be undone on the next keystroke. execCommand goes through the browser's
- * input pipeline, which Lexical listens to.
- */
-export function setComposerText(composer: HTMLElement, text: string, doc: Document = document): void {
+// ── Editing the message box ──
+//
+// WhatsApp's message box is a Lexical editor. Lexical keeps its own model of
+// the text and only learns about a new selection from the `selectionchange`
+// event, which arrives after the current task. Editing right after selecting
+// therefore edits Lexical's stale selection: nothing happens, and a `/zap`
+// command stays in the box, one Enter away from being run again. So: select,
+// wait until Lexical has seen it, edit through the browser's input events
+// (which Lexical handles), and check the result before reporting success.
+
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+/** True when the box holds exactly `text` (ignoring invisible marks and spacing). */
+export function composerHolds(composer: HTMLElement, text: string): boolean {
+  return normalizeText(readComposerText(composer)) === normalizeText(text);
+}
+
+/** Select everything in the box and wait for the editor to pick the selection up. */
+async function selectAll(composer: HTMLElement, doc: Document): Promise<void> {
   composer.focus();
   const selection = doc.getSelection();
-  if (selection) {
-    const range = doc.createRange();
-    range.selectNodeContents(composer);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  if (!selection) return;
+  const synced = new Promise<void>(resolve => {
+    const timer = setTimeout(resolve, 150);
+    doc.addEventListener('selectionchange', () => { clearTimeout(timer); setTimeout(resolve, 0); }, { once: true });
+  });
+  const range = doc.createRange();
+  range.selectNodeContents(composer);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  await synced;
+}
+
+/** Ways to delete the selection, most native first. */
+const DELETE_STRATEGIES: Array<(composer: HTMLElement, doc: Document) => void> = [
+  composer => composer.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true })),
+  composer => composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', keyCode: 8, bubbles: true, cancelable: true })),
+  (_composer, doc) => { doc.execCommand('delete', false); },
+];
+
+/** Ways to type `text` over the selection, most native first. */
+const INSERT_STRATEGIES: Array<(composer: HTMLElement, doc: Document, text: string) => void> = [
+  (_composer, doc, text) => { doc.execCommand('insertText', false, text); },
+  (composer, _doc, text) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', text);
+    composer.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  },
+];
+
+/**
+ * Replace the box's contents with `text` ('' empties it). Resolves true only
+ * when the box was checked afterwards and holds exactly `text`.
+ */
+export async function replaceComposerText(composer: HTMLElement, text: string, doc: Document = document): Promise<boolean> {
+  if (composerHolds(composer, text)) return true;
+  if (!text) {
+    for (const remove of DELETE_STRATEGIES) {
+      await selectAll(composer, doc);
+      try { remove(composer, doc); } catch { /* try the next way */ }
+      await wait(30);
+      if (composerHolds(composer, '')) return true;
+    }
+    return false;
   }
-  if (text) doc.execCommand('insertText', false, text);
-  else doc.execCommand('delete', false);
+  for (const insert of INSERT_STRATEGIES) {
+    await selectAll(composer, doc);
+    try { insert(composer, doc, text); } catch { /* try the next way */ }
+    await wait(30);
+    if (composerHolds(composer, text)) return true;
+  }
+  return false;
+}
+
+/**
+ * Send what is in the box, the way a person would: the send button, or Enter.
+ * Resolves true once the box has emptied, which is how WhatsApp shows a send.
+ */
+export async function sendComposer(composer: HTMLElement, doc: Document = document): Promise<boolean> {
+  const sent = async () => {
+    for (let i = 0; i < 20; i++) {
+      if (composerHolds(composer, '')) return true;
+      await wait(50);
+    }
+    return false;
+  };
+  // The send button appears once the box has text; give it a moment.
+  for (let i = 0; i < 10 && !findSendButton(doc); i++) await wait(50);
+  const button = findSendButton(doc);
+  if (button) {
+    button.click();
+    if (await sent()) return true;
+  }
+  composer.focus();
+  composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+  return sent();
 }
 
 /** The header ⋮ button (its clickable ancestor), or null. */

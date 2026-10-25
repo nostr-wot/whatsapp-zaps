@@ -9,6 +9,8 @@ const DETAILS: ConfirmDetails = {
   recipient: { address: 'alice@w.example', domain: 'w.example', minSats: 1, maxSats: 1000, commentAllowed: 0, description: '<img src=x onerror=alert(1)>' },
   amountSats: 1000,
   comment: 'lunch',
+  chatMessage: '⚡ Zapped @<b>Alice</b> 1,000 sats',
+  postByDefault: true,
 };
 
 function open(requireTrusted = false) {
@@ -31,7 +33,7 @@ describe('ZapDialog', () => {
     assert.match(text, /does not accept comments/);
     assert.equal(root()!.querySelector('img, b'), null);
     button(/^Pay/).click();
-    assert.equal(await answer, true);
+    assert.deepEqual(await answer, { post: true });
   });
 
   it('ignores synthetic clicks on Pay by default', async () => {
@@ -75,17 +77,47 @@ describe('ZapDialog', () => {
     assert.equal((b.root()!.querySelector('input[type="radio"]:checked') as HTMLInputElement).value, 'global');
   });
 
-  it('offers the chat message only after a payment', async () => {
-    const paid = open();
-    const choice = paid.dialog.showResult({ outcome: 'paid', preimage: 'p' }, DETAILS);
-    paid.button('Add message to chat').click();
-    assert.equal(await choice, 'insert');
-    paid.dialog.close();
+  it('offers to post the message after the payment, remembering the last choice', async () => {
+    const { dialog, root, button } = open();
+    const answer = dialog.confirm({ ...DETAILS, postByDefault: false });
+    const box = root()!.querySelector('#wz-post') as HTMLInputElement;
+    assert.equal(box.checked, false);
+    assert.match(root()!.textContent!, /Post in the chat once the payment is confirmed/);
+    assert.match(root()!.querySelector('.preview')!.textContent!, /⚡ Zapped @<b>Alice<\/b> 1,000 sats/);
+    box.checked = true;
+    button(/^Pay/).click();
+    assert.deepEqual(await answer, { post: true });
+  });
 
+  it('reports what happened in the chat after a confirmed payment', () => {
+    const sent = open();
+    void sent.dialog.showResult({ outcome: 'paid', preimage: 'p' }, DETAILS, { commandCleared: true, message: 'sent' });
+    assert.match(sent.root()!.textContent!, /Payment confirmed/);
+    assert.match(sent.root()!.textContent!, /Posted in the chat/);
+    sent.dialog.close();
+
+    const failed = open();
+    void failed.dialog.showResult({ outcome: 'paid', preimage: 'p' }, DETAILS, { commandCleared: false, message: 'not_sent' });
+    const text = failed.root()!.textContent!;
+    assert.match(text, /could not be posted/);
+    assert.equal(failed.root()!.querySelector('.copy-box output')!.textContent, DETAILS.chatMessage);
+    assert.match(text, /still in the message box/);
+  });
+
+  it('posts nothing and warns on an unknown outcome', () => {
     const unknown = open();
-    void unknown.dialog.showResult({ outcome: 'unknown', error: 'timeout' }, DETAILS);
-    assert.equal(unknown.button('Add message to chat'), undefined);
+    void unknown.dialog.showResult({ outcome: 'unknown', error: 'timeout' }, DETAILS, null);
+    assert.match(unknown.root()!.textContent!, /nothing was posted/);
     assert.match(unknown.root()!.textContent!, /second payment/);
+  });
+
+  it('asks before paying the same command again; the safe answer is the default', async () => {
+    const { dialog, root, button } = open();
+    const answer = dialog.confirmRepeat(3, { name: 'Ana', amountSats: 21 });
+    assert.match(root()!.textContent!, /21 sats.*Ana.*3 minutes ago/s);
+    assert.equal(root()!.activeElement?.textContent, 'Don’t pay again');
+    button('Pay again').click();
+    assert.equal(await answer, true);
   });
 
   it('removes itself and reports closing', () => {

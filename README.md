@@ -9,8 +9,26 @@ Send Lightning payments from a WhatsApp Web chat:
 /zap 1,000 @Bob
 ```
 
-While the message box holds a `/zap` command, its text turns purple, so it is
-clearly a payment and not a message.
+While the message box holds a `/zap` command, its text turns WhatsApp green and
+bold, so it is clearly a payment and not a message. The command itself is never
+sent.
+
+### After paying
+
+The confirm screen has **Post in the chat once the payment is confirmed**,
+ticked by default (your last choice is remembered). The `⚡ Zapped @Ana 1,000
+sats` message is posted only after the wallet has confirmed the payment with
+its proof. If the payment fails, is declined or its outcome is unknown, nothing
+is posted.
+
+The message replaces your `/zap` command in the box and is sent. If that fails,
+the dialog shows the message for you to copy, and the command is still removed
+from the box. If it cannot be removed, the dialog says so in red, because
+pressing Enter would start another zap.
+
+Typing the same `/zap` command again in the same chat within 30 minutes shows
+**Already paid**. Its default button, "Don't pay again", removes the command
+without paying.
 
 Pressing Enter on a `/zap` command does not send it to the chat. Instead a
 dialog opens, the recipient's Lightning Address is resolved, and you confirm
@@ -123,7 +141,7 @@ safeguards as LNURL: no redirects, a timeout and a size cap.
 | `src/background.ts` | service worker | LNURL-pay (pay params, invoice) and Nostr profile search |
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
 | `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu |
-| `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in purple in the message box |
+| `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in green in the message box |
 | `src/options/` | extension page | Contacts page; also built as the toolbar popup (`popup.html`) |
 
 ### Who authorizes the payment
@@ -167,6 +185,11 @@ relying on this:
 - the send button,
 - mention chips (`data-app-text-template`),
 - the header ⋮ button and its dropdown items (`data-animate-dropdown-item`),
+- `body.dark`, which is how WhatsApp marks its dark theme (the dialogs follow it).
+
+WhatsApp's message box is a Lexical editor. The smoke test runs one with real
+Lexical (`tests/fixtures/lexical-composer.ts`), because edits that work on a
+plain editable box can silently do nothing in Lexical.
 - the `data-id` message rows used for the chat id.
 
 If they've drifted, replace the fixture with a real capture.
@@ -178,7 +201,7 @@ npm test             # unit + jsdom tests
 npm run typecheck
 npm run build
 npm run smoke -- /path/to/chrome   # real-browser end-to-end run against dist/
-node scripts/icons.mjs /path/to/chrome   # re-render icons/icon.svg to PNGs
+node scripts/icons.mjs /path/to/chrome   # re-render icons/*.svg to PNGs
 ```
 
 The smoke test runs one local HTTPS/WebSocket server that serves:

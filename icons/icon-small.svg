@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2fe076"/>
+      <stop offset="1" stop-color="#00a884"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#tile)"/>
+  <!-- at toolbar size only the bolt survives: bold, white, centred -->
+  <path fill="#ffffff" d="M18.5 4 8 18h6.5L12 28l12-15.5h-6.8L18.5 4z"/>
+</svg>
