@@ -2,6 +2,10 @@
 
 Send Lightning payments from a WhatsApp Web chat:
 
+In a private chat no name is needed, and the help text never asks for one. Only
+a chat the extension knows is a group needs `@name`; if it cannot tell, it
+treats the chat as private and pays whoever the chat header names.
+
 ```
 /zap 1000                      ← in a private chat: pays the person you are chatting with
 /zap @Alice 1000               ← in a group: name who to pay

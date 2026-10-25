@@ -97,10 +97,34 @@ describe('parseZapCommand', () => {
     fails(`/zap 10 ${'x'.repeat(281)}`, /longer than 280/);
   });
 
+  it('in a private chat, never asks for a name', () => {
+    const err = (text: string) => {
+      const r = parseZapCommand(text, [], 'private');
+      assert.equal(r.ok, false, text);
+      return (r as { error: string }).error;
+    };
+    for (const text of ['/zap', '/zap thanks', '/zap thanks 1000']) {
+      const e = err(text);
+      assert.doesNotMatch(e, /Mention|@name/, `${text}: ${e}`);
+      assert.match(e, /amount/, text);
+      assert.match(e, /\/zap 1000 thanks/, text);
+    }
+  });
+
+  it('in a group, asks who to zap', () => {
+    const r = parseZapCommand('/zap thanks', [], 'group');
+    assert.match((r as { error: string }).error, /Mention who to zap.*\/zap @name amount/);
+  });
+
+  it('when the chat kind is unknown, explains both forms', () => {
+    const r = parseZapCommand('/zap thanks', [], 'unknown');
+    assert.match((r as { error: string }).error, /private chat.*group/);
+  });
+
   it('explains what is missing', () => {
     fails('/zap', /Usage/);
     fails('/zap @Alice', /Add an amount/);
-    fails('/zap Alice 1000', /Mention who/);
+    fails('/zap Alice 1000', /Start with the amount/);
     fails('/zap @Alice lots', /Usage/);
   });
 

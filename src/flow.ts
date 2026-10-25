@@ -5,7 +5,7 @@
  * particular "one invoice, one payment attempt, never retried" — can be tested
  * without WhatsApp, a wallet or the network.
  */
-import { normalizeText, parseZapCommand, zapMessage, type Mention } from './domain/command.ts';
+import { normalizeText, parseZapCommand, zapMessage, type ChatKind, type Mention } from './domain/command.ts';
 import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore } from './domain/mappings.ts';
 import type { RecipientInfo } from './domain/messages.ts';
 import type { PayOutcome } from './domain/bridge.ts';
@@ -99,6 +99,14 @@ export interface ChatContext {
   chatTitle: string | null;
   /** The other person, in a one-to-one chat. `/zap 1000` with no mention pays them. */
   contact?: Mention | null;
+  /** True only when the chat is known to be a group; null when it could not be told. */
+  isGroup?: boolean | null;
+}
+
+function chatKind(chat: ChatContext): ChatKind {
+  if (chat.isGroup === true) return 'group';
+  if (chat.isGroup === false || chat.contact) return 'private';
+  return 'unknown';
 }
 
 export type FlowResult = 'invalid' | 'cancelled' | 'error' | PayOutcome['outcome'];
@@ -148,16 +156,22 @@ async function pickAddress(
  * and logging — all user-facing feedback goes through `deps.ui`.
  */
 export async function runZap(text: string, mentions: Mention[], chat: ChatContext, deps: ZapDeps): Promise<FlowResult> {
-  const parsed = parseZapCommand(text, mentions);
+  const kind = chatKind(chat);
+  const parsed = parseZapCommand(text, mentions, kind);
   if (!parsed.ok) {
     await deps.ui.showError(parsed.error);
     deps.ui.close();
     return 'invalid';
   }
   const { amountSats, comment } = parsed.command;
-  const recipient = parsed.command.recipient ?? chat.contact ?? null;
+  // No mention: pay the person the chat is with. Only a chat known to be a
+  // group needs a name; when the kind could not be told, it is taken as a
+  // private chat with whoever the header names.
+  const recipient = parsed.command.recipient
+    ?? chat.contact
+    ?? (kind === 'group' ? null : { label: chat.chatTitle ?? 'this contact', id: null });
   if (!recipient) {
-    await deps.ui.showError('In a group, say who to zap: /zap @name amount');
+    await deps.ui.showError('This is a group, so say who to zap: /zap @name amount');
     deps.ui.close();
     return 'invalid';
   }

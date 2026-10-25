@@ -93,10 +93,24 @@ describe('runZap', () => {
     assert.ok(log.includes('confirm:ana@w.example:21:thanks'));
   });
 
-  it('asks for a mention when no one is named in a group', async () => {
+  it('asks for a mention when no one is named in a known group', async () => {
     const { deps, log } = setup({ store: known });
-    assert.equal(await runZap('/zap 21', [], CHAT, deps), 'invalid');
-    assert.match(log[0], /^error:In a group, say who to zap/);
+    assert.equal(await runZap('/zap 21', [], { ...CHAT, isGroup: true }, deps), 'invalid');
+    assert.match(log[0], /^error:This is a group, so say who to zap/);
+  });
+
+  it('when the chat kind could not be told, pays whoever the header names', async () => {
+    const { deps, log } = setup({ addresses: [null] });
+    assert.equal(await runZap('/zap 21', [], { chatKey: null, chatTitle: 'Ana', contact: null, isGroup: null }, deps), 'cancelled');
+    assert.equal(log[0], 'ask:Ana:null', 'asks for Ana’s address, not for a name');
+  });
+
+  it('a private chat’s help text never asks for a name', async () => {
+    const { deps, log } = setup();
+    const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' }, isGroup: false };
+    assert.equal(await runZap('/zap thanks', [], chat, deps), 'invalid');
+    assert.match(log[0], /^error:Start with the amount\. Usage: \/zap amount \[comment\]/);
+    assert.doesNotMatch(log[0], /@name|Mention/);
   });
 
   it('a mention still wins in a one-to-one chat', async () => {

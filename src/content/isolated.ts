@@ -73,6 +73,7 @@ installInterceptor(({ text, mentions, composer }) => {
     chatKey: readChatKey(),
     chatTitle: readChatTitle(),
     contact: contact?.kind === 'contact' ? { label: contact.name, id: contact.id } : null,
+    isGroup: contact ? contact.kind === 'group' : null,
   };
   void runZap(text, mentions, chat, {
     ui: dialog,

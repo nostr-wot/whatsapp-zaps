@@ -31,7 +31,14 @@ export type ParseResult =
   | { ok: true; command: ZapCommand }
   | { ok: false; error: string };
 
-const USAGE = 'Usage: /zap @name amount [comment]';
+/** Where the command was typed; it decides what the help text asks for. */
+export type ChatKind = 'private' | 'group' | 'unknown';
+
+const USAGE: Record<ChatKind, string> = {
+  private: 'Usage: /zap amount [comment] — for example /zap 1000 thanks',
+  group: 'Usage: /zap @name amount [comment]',
+  unknown: 'Usage: /zap amount [comment] in a private chat, or /zap @name amount in a group',
+};
 
 // WhatsApp wraps mentions in bidi isolates and sprinkles zero-width marks.
 const INVISIBLES = /[\u200b-\u200f\u2066-\u2069\ufeff]/g;
@@ -87,11 +94,12 @@ function takeRecipient(rest: string, mentions: Mention[]): { recipient: Mention;
 }
 
 /** Parse composer text into a zap command. */
-export function parseZapCommand(text: string, mentions: Mention[] = []): ParseResult {
+export function parseZapCommand(text: string, mentions: Mention[] = [], chat: ChatKind = 'unknown'): ParseResult {
+  const usage = USAGE[chat];
   const normalized = normalizeText(text);
-  if (!isZapCommand(normalized)) return { ok: false, error: USAGE };
+  if (!isZapCommand(normalized)) return { ok: false, error: usage };
   let rest = normalized.replace(/^\/zap\s*/i, '');
-  if (!rest) return { ok: false, error: USAGE };
+  if (!rest) return { ok: false, error: chat === 'group' ? usage : `Add an amount. ${usage}` };
 
   let amount: number | null = null;
   let recipient: Mention | null = null;
@@ -106,7 +114,10 @@ export function parseZapCommand(text: string, mentions: Mention[] = []): ParseRe
 
   if (!rest.startsWith('@')) {
     // `/zap 1000 [comment]`: no one named. The caller decides who that is.
-    if (amount === null) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+    if (amount === null) {
+      // In a private chat no name is needed; what is missing is the amount up front.
+      return { ok: false, error: chat === 'group' ? `Mention who to zap. ${usage}` : `Start with the amount. ${usage}` };
+    }
     const amountError = checkAmount(amount);
     if (amountError) return { ok: false, error: amountError };
     if (rest.length > MAX_COMMENT_LENGTH) return { ok: false, error: `The comment is longer than ${MAX_COMMENT_LENGTH} characters.` };
@@ -122,13 +133,13 @@ export function parseZapCommand(text: string, mentions: Mention[] = []): ParseRe
     const words = rest.slice(1).split(' ');
     const amountAt = amount === null ? words.findIndex((w, i) => i > 0 && parseAmount(w) !== null) : -1;
     if (amount === null && amountAt === -1) {
-      if (words.length === 1 && words[0]) return { ok: false, error: `Add an amount. ${USAGE}` };
-      return { ok: false, error: USAGE };
+      if (words.length === 1 && words[0]) return { ok: false, error: `Add an amount. ${usage}` };
+      return { ok: false, error: usage };
     }
     // With the amount first, the name is the first word only: a comment cannot be told apart otherwise.
     const nameWords = amount === null ? words.slice(0, amountAt) : words.slice(0, 1);
     const label = nameWords.join(' ');
-    if (!label) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+    if (!label) return { ok: false, error: `Mention who to zap. ${usage}` };
     recipient = { label, id: null };
     rest = words.slice(nameWords.length).join(' ');
   }
@@ -136,7 +147,7 @@ export function parseZapCommand(text: string, mentions: Mention[] = []): ParseRe
   if (amount === null) {
     const token = rest.split(' ')[0];
     amount = parseAmount(token);
-    if (amount === null) return { ok: false, error: `Add an amount. ${USAGE}` };
+    if (amount === null) return { ok: false, error: `Add an amount. ${usage}` };
     rest = rest.slice(token.length).trim();
   }
 
