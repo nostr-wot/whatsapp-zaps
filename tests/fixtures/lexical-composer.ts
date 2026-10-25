@@ -10,6 +10,11 @@
  *   replaces the typed `@name` with a mention node.
  * - `?text=` sets the initial text; `?mention=Name:id` puts a picked mention
  *   into it in place of `@Name`; `?members=Name:id,Name:id` fills the list.
+ * - `?markup=opaque` drops every marker the extension knows (no
+ *   data-app-text-template, no .mention, no roles): mentions carry only a
+ *   random class and the id in an unrelated attribute, and the list is a
+ *   portal of plain divs picked by click. This checks that the extension
+ *   does not depend on guessed WhatsApp markup.
  */
 import {
   $applyNodeReplacement, $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection, $isTextNode,
@@ -44,6 +49,7 @@ function $createMentionNode(name: string, jid: string): MentionNode {
 const $isMention = (node: LexicalNode | null | undefined): node is MentionNode => node instanceof MentionNode;
 
 const params = new URLSearchParams(location.search);
+const opaque = params.get('markup') === 'opaque';
 const members = (params.get('members') ?? '').split(',').filter(Boolean).map(m => {
   const [name, jid] = m.split(':');
   return { name, jid };
@@ -73,9 +79,11 @@ editor.update(() => {
 
 // ── Mention list ──
 const list = document.createElement('div');
-list.setAttribute('role', 'listbox');
+if (!opaque) list.setAttribute('role', 'listbox');
 list.hidden = true;
-document.querySelector('footer')!.prepend(list);
+// The opaque list is a portal at the end of <body>, as many apps render popups.
+if (opaque) document.body.append(list);
+else document.querySelector('footer')!.prepend(list);
 
 function pick(member: { name: string; jid: string }) {
   editor.update(() => {
@@ -108,9 +116,20 @@ editor.registerUpdateListener(({ editorState }) => {
   const matches = query === null ? [] : members.filter(m => m.name.toLowerCase().startsWith(query.toLowerCase()));
   list.replaceChildren(...matches.map(m => {
     const option = document.createElement('div');
-    option.setAttribute('role', 'option');
-    option.textContent = m.name;
-    option.addEventListener('mousedown', e => { e.preventDefault(); pick(m); });
+    if (opaque) {
+      option.tabIndex = -1;
+      const name = document.createElement('span');
+      name.textContent = m.name;
+      const phone = document.createElement('span');
+      phone.textContent = '~ +54 9 11';
+      option.append(name, phone);
+      option.addEventListener('mousedown', e => e.preventDefault());
+      option.addEventListener('click', () => pick(m));
+    } else {
+      option.setAttribute('role', 'option');
+      option.textContent = m.name;
+      option.addEventListener('mousedown', e => { e.preventDefault(); pick(m); });
+    }
     return option;
   }));
   list.hidden = matches.length === 0;

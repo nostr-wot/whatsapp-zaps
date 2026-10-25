@@ -47,7 +47,7 @@
     form.add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 14px; }
     form.search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     @media (max-width: 600px) { form.add { grid-template-columns: 1fr; } }
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     #status { min-height: 1.5em; margin: 0; font-weight: 550; color: var(--ok); }
     #search-status { margin: 10px 0 0; }
     #search-status:empty { display: none; }
@@ -133,6 +133,16 @@
       <button type="button" id="export">Export JSON</button>
       <label><button type="button" id="import-button">Import JSON</button>
         <input type="file" id="import" accept="application/json,.json" hidden></label>
+    </div>
+    </section>
+    <section id="troubleshooting">
+    <h2>Troubleshooting</h2>
+    <p class="muted">If a mention or the message box does not work as it should, copy the diagnostics and send them to the developer.
+      They contain the markup of WhatsApp's message box and mention list, including the names shown there. They stay in this browser until you copy them.</p>
+    <div class="toolbar">
+      <button type="button" id="copy-diagnostics">Copy diagnostics</button>
+      <button type="button" id="clear-diagnostics">Clear</button>
+      <span id="diagnostics-count" class="muted"></span>
     </div>
     </section>
     <p id="status" role="status"></p>

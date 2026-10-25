@@ -29,6 +29,11 @@ export const RECENT_ZAPS_KEY = 'recentZaps';
 /** Whether to post the ⚡ message after a confirmed payment (the last choice made). */
 export const POST_PREFERENCE_KEY = 'postZapMessage';
 
+/** Local diagnostics about mentions and the message box (see services/diagnostics.ts). */
+export const DIAGNOSTICS_KEY = 'diagnostics';
+
+export const MAX_DIAGNOSTICS = 5;
+
 /** How long the same command in the same chat asks before being paid again. */
 export const REPEAT_WINDOW_MS = 30 * 60_000;
 

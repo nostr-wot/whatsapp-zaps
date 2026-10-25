@@ -187,7 +187,9 @@ export function zapChatMessage(who: Mention | null, amountSats: number, comment 
   if (!who) return { text };
   return {
     text,
-    mention: { before: `⚡ Sent ${amountSats.toLocaleString('en-US')} sats to `, who, after: comment ? `: ${comment}` : '' },
+    // A space always separates the mention from what follows: text typed right
+    // against a mention can merge into it in some editors and break it.
+    mention: { before: `⚡ Sent ${amountSats.toLocaleString('en-US')} sats to `, who, after: comment ? ` — ${comment}` : '' },
   };
 }
 
@@ -202,5 +204,5 @@ export function zapChatMessage(who: Mention | null, amountSats: number, comment 
 export function zapMessage(to: string | null, amountSats: number, comment = ''): string {
   const amount = `${amountSats.toLocaleString('en-US')} sats`;
   const base = to === null ? `⚡ Sent you ${amount}` : `⚡ Sent ${amount} to ${to}`;
-  return comment ? `${base}: ${comment}` : base;
+  return comment ? `${base} — ${comment}` : base;
 }

@@ -91,26 +91,63 @@ export function readComposerText(composer: HTMLElement): string {
   return Array.from(paragraphs, p => p.textContent ?? '').join('\n');
 }
 
-/** Contact id from a mention chip, e.g. `@{{5491100000000@c.us}}` → `5491100000000@c.us`. */
+/** A WhatsApp contact id inside any attribute value, e.g. `5491100000000@c.us`. */
+const CONTACT_ID = /(\d{5,20}@(?:c\.us|s\.whatsapp\.net|lid))/;
+
+/**
+ * Contact id from a mention chip, e.g. `@{{5491100000000@c.us}}` → `5491100000000@c.us`.
+ * Known attributes first; otherwise any attribute on the chip or inside it that
+ * holds something shaped like a contact id.
+ */
 export function mentionId(el: Element): string | null {
   const template = el.getAttribute('data-app-text-template') ?? '';
   const candidates = [/@\{\{([^}]+)\}\}/.exec(template)?.[1], el.getAttribute('data-jid')];
-  return candidates.find((id): id is string => !!id && /^[\w.+-]+@[\w.]+$/.test(id)) ?? null;
+  const known = candidates.find((id): id is string => !!id && /^[\w.+-]+@[\w.]+$/.test(id));
+  if (known) return known;
+  for (const node of [el, ...el.querySelectorAll('*')]) {
+    for (const attr of Array.from(node.attributes)) {
+      const match = CONTACT_ID.exec(attr.value);
+      if (match) return match[1];
+    }
+  }
+  return null;
+}
+
+/** True for a bare editor text span: Lexical marks those `data-lexical-text` and nothing else. */
+function isPlainTextSpan(el: Element): boolean {
+  const attrs = Array.from(el.attributes).map(a => a.name).filter(n => n !== 'data-lexical-text' && n !== 'style');
+  return el.hasAttribute('data-lexical-text') && attrs.length === 0;
+}
+
+/**
+ * The mention chips in the box. Known markers first; then, not relying on
+ * WhatsApp's markup at all: the editor renders each piece of a paragraph as
+ * its own element, and a mention is a piece whose whole text is `@Name`.
+ * Typed `@name` text is part of a larger plain text piece instead.
+ */
+export function mentionElements(composer: HTMLElement): HTMLElement[] {
+  const found: HTMLElement[] = [];
+  for (const selector of SELECTORS.mention) {
+    for (const el of composer.querySelectorAll<HTMLElement>(selector)) if (!found.includes(el)) found.push(el);
+  }
+  const blocks = composer.querySelectorAll<HTMLElement>('p');
+  for (const block of blocks.length ? Array.from(blocks) : [composer]) {
+    for (const child of Array.from(block.children) as HTMLElement[]) {
+      const text = normalizeText(child.textContent ?? '');
+      if (!/^@\S/.test(text) || isPlainTextSpan(child)) continue;
+      if (found.some(f => f.contains(child) || child.contains(f))) continue;
+      found.push(child);
+    }
+  }
+  // Keep the outermost of nested matches.
+  return found.filter(el => !found.some(other => other !== el && other.contains(el)));
 }
 
 /** Mention chips the user picked from WhatsApp's mention list. */
 export function readMentions(composer: HTMLElement): Mention[] {
-  const seen = new Set<Element>();
-  const mentions: Mention[] = [];
-  for (const selector of SELECTORS.mention) {
-    for (const el of composer.querySelectorAll(selector)) {
-      if ([...seen].some(s => s.contains(el) || el.contains(s))) continue;
-      seen.add(el);
-      const label = normalizeText(el.textContent ?? '').replace(/^@/, '');
-      if (label) mentions.push({ label, id: mentionId(el) });
-    }
-  }
-  return mentions;
+  return mentionElements(composer)
+    .map(el => ({ label: normalizeText(el.textContent ?? '').replace(/^@/, ''), id: mentionId(el) }))
+    .filter(m => m.label);
 }
 
 export function readChatTitle(doc: Document = document): string | null {
@@ -218,17 +255,17 @@ export async function replaceComposerText(composer: HTMLElement, text: string, d
 
 // ── Real mentions ──
 
+const plainName = (text: string) => normalizeText(text).replace(/^@/, '').toLowerCase();
+
 /** The mention element for `who` in the box: by contact id when known, else by name. */
 export function findMentionElement(composer: HTMLElement, who: Mention): HTMLElement | null {
-  const name = normalizeText(who.label).replace(/^@/, '').toLowerCase();
-  let byName: HTMLElement | null = null;
-  for (const selector of SELECTORS.mention) {
-    for (const el of composer.querySelectorAll<HTMLElement>(selector)) {
-      if (who.id && mentionId(el) === who.id) return el;
-      if (!byName && normalizeText(el.textContent ?? '').replace(/^@/, '').toLowerCase() === name) byName = el;
-    }
+  const name = plainName(who.label);
+  const mentions = mentionElements(composer);
+  if (who.id) {
+    const byId = mentions.find(el => mentionId(el) === who.id);
+    if (byId) return byId;
   }
-  return byName;
+  return mentions.find(el => plainName(el.textContent ?? '') === name) ?? null;
 }
 
 /** Spacing differs between editors around a mention; compare without it. */
@@ -257,6 +294,13 @@ function lastBlock(composer: HTMLElement): Node {
   return blocks[blocks.length - 1] ?? composer;
 }
 
+function caretAtEnd(composer: HTMLElement, doc: Document): Range {
+  const range = doc.createRange();
+  range.selectNodeContents(lastBlock(composer));
+  range.collapse(false);
+  return range;
+}
+
 /** Type `text` over the current selection, or delete it when `text` is empty. */
 async function typeOverSelection(composer: HTMLElement, text: string, doc: Document): Promise<void> {
   if (text) {
@@ -267,17 +311,25 @@ async function typeOverSelection(composer: HTMLElement, text: string, doc: Docum
   await wait(30);
 }
 
+/** The box holds `before` + a mention of `who` + `after`, and no other mention. */
+function holdsMessage(composer: HTMLElement, who: Mention, before: string, after: string): boolean {
+  const mentions = mentionElements(composer);
+  const mention = findMentionElement(composer, who);
+  return mentions.length === 1 && mention !== null
+    && compact(readComposerText(composer)) === compact(before + (mention.textContent ?? '') + after);
+}
+
 /**
  * Turn the box into `before` + the existing mention of `who` + `after`,
- * leaving WhatsApp's own mention untouched so it stays a real mention.
+ * leaving WhatsApp's own mention untouched so it stays a real mention. The
+ * selections stop at the mention's edges and never include it.
  * Resolves true only when the result was checked.
  */
 export async function rewriteAroundMention(
   composer: HTMLElement, who: Mention, before: string, after: string, doc: Document = document,
 ): Promise<boolean> {
   const mention = findMentionElement(composer, who);
-  if (!mention) return false;
-  const label = mention.textContent ?? '';
+  if (!mention || mentionElements(composer).length !== 1) return false;
 
   // After the mention first, so the positions before it do not move.
   const tail = doc.createRange();
@@ -296,74 +348,134 @@ export async function rewriteAroundMention(
   await selectRange(head, composer, doc);
   await typeOverSelection(composer, before, doc);
 
-  return !!findMentionElement(composer, who) && compact(readComposerText(composer)) === compact(before + label + after);
+  return holdsMessage(composer, who, before, after);
 }
 
-/** The entry in WhatsApp's open mention list for `who`, if exactly one fits. */
-export function findMentionOption(who: Mention, doc: Document = document): HTMLElement | null {
+const OPTION_ROLES = '[role="option"],[role="button"],[role="listitem"],[role="menuitem"],button,li,[tabindex]';
+
+/**
+ * The entry for `who` in WhatsApp's open mention list, if exactly one fits.
+ *
+ * Known list markup first. Otherwise, not relying on WhatsApp's markup: among
+ * the elements that appeared after `@name` was typed (`appeared`), the ones
+ * showing a matching name are list entries.
+ */
+export function findMentionOption(who: Mention, doc: Document = document, appeared: Element[] = []): HTMLElement | null {
   let options: HTMLElement[] = [];
   for (const selector of SELECTORS.mentionOption) {
     options = [...doc.querySelectorAll<HTMLElement>(selector)];
     if (options.length) break;
   }
+  if (!options.length) {
+    // Each name in the list is a leaf element (no child elements); its entry is the
+    // clickable element around it, or the leaf itself when nothing is marked clickable.
+    const entries = new Set<HTMLElement>();
+    for (const root of appeared) {
+      if (!root.isConnected) continue;
+      for (const leaf of [root, ...root.querySelectorAll<HTMLElement>('*')] as HTMLElement[]) {
+        if (leaf.children.length || !plainName(leaf.textContent ?? '')) continue;
+        const entry = leaf.closest(OPTION_ROLES) as HTMLElement | null;
+        entries.add(entry && root.contains(entry) ? entry : leaf);
+      }
+    }
+    options = [...entries];
+  }
   if (who.id) {
-    const byId = options.find(o => [o, ...o.querySelectorAll('[data-jid]')].some(el => el.getAttribute('data-jid') === who.id));
+    const byId = options.find(o => mentionId(o) === who.id);
     if (byId) return byId;
   }
   const name = normalizeName(who.label);
-  const exact = options.filter(o => normalizeName(o.textContent ?? '') === name);
+  // The texts an entry shows: its own when it is a leaf, otherwise those of its leaves.
+  const texts = (o: HTMLElement) => {
+    const leaves = [...o.querySelectorAll<HTMLElement>('*')].filter(el => !el.children.length);
+    return [o.textContent ?? '', ...leaves.map(el => el.textContent ?? '')].map(normalizeName).filter(Boolean);
+  };
+  const exact = options.filter(o => texts(o).includes(name));
   if (exact.length === 1) return exact[0];
-  const starts = options.filter(o => normalizeName(o.textContent ?? '').startsWith(name));
+  const starts = options.filter(o => texts(o).some(t => t.startsWith(name)));
   // Never guess between people: no match or several matches means no mention.
   return exact.length === 0 && starts.length === 1 ? starts[0] : null;
+}
+
+/** Markup seen while trying to make a mention, kept for diagnostics. */
+export interface MentionAttempt {
+  ok: boolean;
+  stage: string;
+  composerHtml: string;
+  listHtml: string;
+}
+
+let lastAttempt: MentionAttempt | null = null;
+
+/** What the last attempt to make a mention saw; for the diagnostics the person can copy. */
+export function lastMentionAttempt(): MentionAttempt | null {
+  return lastAttempt;
 }
 
 /**
  * Write `before`, then mention `who` the way a person does — type `@` and the
  * start of the name, pick them from WhatsApp's list — then write `after`.
- * Resolves true only when the box was checked to hold a real mention.
+ * Resolves true only when the box was checked to hold a real mention of them.
  */
 export async function writeWithMention(
   composer: HTMLElement, who: Mention, before: string, after: string, doc: Document = document,
 ): Promise<boolean> {
-  if (!(await replaceComposerText(composer, before.trimEnd(), doc))) return false;
-  const end = () => {
-    const range = doc.createRange();
-    range.selectNodeContents(lastBlock(composer));
-    range.collapse(false);
-    return range;
+  const appeared: Element[] = [];
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (node.nodeType === 1 && !composer.contains(node) && !(node as Element).closest('[data-whatsapp-zaps]')) appeared.push(node as Element);
+      }
+    }
+  });
+  const finish = (ok: boolean, stage: string) => {
+    observer.disconnect();
+    lastAttempt = {
+      ok, stage,
+      composerHtml: composer.outerHTML.slice(0, 20_000),
+      listHtml: appeared.filter(e => e.isConnected).map(e => e.outerHTML).join('\n').slice(0, 30_000),
+    };
+    return ok;
   };
-  await selectRange(end(), composer, doc);
-  const query = normalizeText(who.label).replace(/^@/, '').split(' ')[0];
-  doc.execCommand('insertText', false, ` @${query}`);
+
+  if (!(await replaceComposerText(composer, before.trimEnd(), doc))) return finish(false, 'write-before');
+  await selectRange(caretAtEnd(composer, doc), composer, doc);
+  observer.observe(doc.body, { childList: true, subtree: true });
+  doc.execCommand('insertText', false, ` @${normalizeText(who.label).replace(/^@/, '')}`);
 
   let option: HTMLElement | null = null;
   for (let i = 0; i < 30 && !option; i++) {
     await wait(50);
-    option = findMentionOption(who, doc);
+    option = findMentionOption(who, doc, appeared);
   }
-  if (!option) return false;
+  if (!option) return finish(false, 'no-unique-list-entry');
+  const optionName = plainName((option.textContent ?? '').split('\n')[0] ?? '');
+
+  // Pick it: a click as a person makes it, then the keyboard (Tab picks the highlighted entry).
+  const picked = () => mentionElements(composer).find(el =>
+    (who.id && mentionId(el) === who.id) || plainName(el.textContent ?? '') === optionName
+    || plainName(el.textContent ?? '').startsWith(plainName(who.label)));
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
     option.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: doc.defaultView }));
   }
-  for (let i = 0; i < 10 && !findMentionElement(composer, who); i++) await wait(50);
-  const mention = findMentionElement(composer, who);
-  if (!mention) return false;
+  for (let i = 0; i < 10 && !picked(); i++) await wait(50);
+  if (!picked()) {
+    composer.focus();
+    composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', keyCode: 9, bubbles: true, cancelable: true }));
+    for (let i = 0; i < 10 && !picked(); i++) await wait(50);
+  }
+  const mention = picked();
+  if (!mention) return finish(false, 'not-picked');
+  const person: Mention = { label: normalizeText(mention.textContent ?? '').replace(/^@/, ''), id: mentionId(mention) ?? who.id };
 
   if (after) {
-    await selectRange(end(), composer, doc);
-    // WhatsApp adds a space after a picked mention; ": thanks" should sit right after the name.
-    const text = readComposerText(composer);
-    if (/\s$/.test(text) && /^[:,.]/.test(after)) {
-      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', keyCode: 8, bubbles: true, cancelable: true }));
-      await wait(30);
-      await selectRange(end(), composer, doc);
-    }
-    doc.execCommand('insertText', false, after);
+    await selectRange(caretAtEnd(composer, doc), composer, doc);
+    // WhatsApp may add a space after a picked mention; do not double it.
+    const text = after.startsWith(' ') && /\s$/.test(readComposerText(composer)) ? after.slice(1) : after;
+    doc.execCommand('insertText', false, text);
     await wait(30);
   }
-  const label = findMentionElement(composer, who)?.textContent ?? '';
-  return !!label && compact(readComposerText(composer)) === compact(before + label + after);
+  return finish(holdsMessage(composer, person, before, after), 'checked');
 }
 
 /**

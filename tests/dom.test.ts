@@ -110,3 +110,36 @@ describe('mentions in the message box and the mention list', () => {
     assert.equal(findMentionOption({ label: 'Whoever', id: '77@c.us' })?.textContent, 'Mystery', 'the contact id wins');
   });
 });
+
+describe('mentions without known markup', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+
+  it('recognises a mention as a piece of its own holding "@Name", and finds its id anywhere', async () => {
+    const { mentionElements, readMentions } = await import('../src/whatsapp/dom.ts');
+    const composer = findComposer()!;
+    composer.innerHTML = '<p><span data-lexical-text="true">/zap </span>'
+      + '<span class="_ao3e x1x" data-lexical-text="true" data-ref="u:5491177@c.us"><span>@Jaqui</span></span>'
+      + '<span data-lexical-text="true"> 21 thanks @not-a-mention</span></p>';
+    assert.equal(mentionElements(composer).length, 1);
+    assert.deepEqual(readMentions(composer), [{ label: 'Jaqui', id: '5491177@c.us' }]);
+  });
+
+  it('does not take typed "@name" text for a mention', async () => {
+    const { mentionElements } = await import('../src/whatsapp/dom.ts');
+    const composer = findComposer()!;
+    composer.innerHTML = '<p><span data-lexical-text="true">@Jaqui</span></p>';
+    assert.deepEqual(mentionElements(composer), []);
+  });
+
+  it('finds the list entry among what appeared after typing, when only one fits', async () => {
+    const { findMentionOption } = await import('../src/whatsapp/dom.ts');
+    const popup = document.createElement('div');
+    popup.innerHTML = '<div tabindex="-1"><span>Jaqui</span><span>+54 9 11</span></div><div tabindex="-1"><span>Jaime</span></div>';
+    document.body.append(popup);
+    const entry = findMentionOption({ label: 'Jaqui', id: null }, document, [popup]);
+    assert.equal(entry?.getAttribute('tabindex'), '-1');
+    assert.match(entry!.textContent!, /^Jaqui/);
+    assert.equal(findMentionOption({ label: 'Ja', id: null }, document, [popup]), null, 'two people: no guess');
+    assert.equal(findMentionOption({ label: 'Jaqui', id: null }, document, []), null, 'nothing appeared: nothing picked');
+  });
+});

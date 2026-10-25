@@ -4,6 +4,8 @@ import { normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, 
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
 import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import type { BackgroundResponse } from '../domain/messages.ts';
+import { clearDiagnostics, formatDiagnostics, loadDiagnostics } from '../services/diagnostics.ts';
+import { DIAGNOSTICS_KEY } from '../constants.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -198,8 +200,31 @@ $('search').addEventListener('submit', async event => {
 // In the toolbar popup, backup (which needs file dialogs that close popups) lives on the full page.
 document.getElementById('open-full')?.addEventListener('click', () => { void chrome.runtime.openOptionsPage(); window.close(); });
 
+async function renderDiagnosticsCount() {
+  const count = (await loadDiagnostics()).length;
+  $('diagnostics-count').textContent = count ? `${count} recorded` : 'Nothing recorded';
+  $<HTMLButtonElement>('copy-diagnostics').disabled = count === 0;
+}
+
+$('copy-diagnostics').addEventListener('click', async () => {
+  const report = formatDiagnostics(await loadDiagnostics(), navigator.userAgent);
+  try {
+    await navigator.clipboard.writeText(report);
+    setStatus('Diagnostics copied. Paste them into your message.');
+  } catch {
+    setStatus('Could not copy. Open the full page and try again.', true);
+  }
+});
+
+$('clear-diagnostics').addEventListener('click', async () => {
+  await clearDiagnostics();
+  setStatus('Diagnostics cleared.');
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && MAPPINGS_STORAGE_KEY in changes) void render();
+  if (area === 'local' && DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
 });
+void renderDiagnosticsCount();
 
 void render();

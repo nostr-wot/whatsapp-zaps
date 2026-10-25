@@ -14,8 +14,10 @@ import { loadMappings, updateMappings } from '../services/mappingStore.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
-  findComposer, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention, sendComposer, writeWithMention,
+  findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
+  sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
+import { recordDiagnostic } from '../services/diagnostics.ts';
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
@@ -102,8 +104,19 @@ installInterceptor(({ text, mentions, composer }) => {
       if (m) {
         // Keep the mention the person picked in their command, so it stays a real one;
         // otherwise make one through WhatsApp's own mention list.
+        const commandHtml = box.outerHTML.slice(0, 20_000);
         ready = await rewriteAroundMention(box, m.who, m.before, m.after)
           || await writeWithMention(box, m.who, m.before, m.after);
+        if (!ready) {
+          const attempt = lastMentionAttempt();
+          void recordDiagnostic('mention could not be made; posted as plain text', {
+            wanted: `${m.who.label}${m.who.id ? ` (${m.who.id})` : ''}`,
+            'message box with the command': commandHtml,
+            'stage reached': attempt?.stage ?? 'rewrite only',
+            'message box after the attempt': attempt?.composerHtml ?? box.outerHTML.slice(0, 20_000),
+            'what appeared after typing @': attempt?.listHtml || '(nothing)',
+          });
+        }
       }
       if (!ready) ready = await replaceComposerText(box, message.text);
       updateHighlight();

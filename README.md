@@ -38,9 +38,23 @@ notified:
 - If you typed her name without picking, the extension opens WhatsApp's own
   mention list (it types `@Ana`) and picks her. It only does that when exactly
   one person fits; otherwise the name is posted as plain text, never a guess.
+- A space and a dash separate the mention from your comment
+  (`⚡ Sent 21 sats to @Ana — thanks`): text typed right against a mention can
+  merge into it and break it.
+- Mentions are recognised by how the editor builds them (a piece of the
+  message holding exactly `@Name`), and the mention list by what appears after
+  `@name` is typed, so neither depends on WhatsApp's exact markup. The smoke
+  test checks this against an editor whose markup carries none of the known
+  markers.
 - The message is only sent once the box is checked to hold it with the
-  mention in place. Private chats have no mentions in WhatsApp, so there it is
+  mention in place, and no other mention. Private chats have no mentions in WhatsApp, so there it is
   just `⚡ Sent you …`.
+
+If a mention cannot be made, the message goes out as plain text and the
+extension saves a **diagnostic** in your browser: the markup of the message box
+and of whatever appeared after `@` was typed. Use **Copy diagnostics** in the
+toolbar popup to send it to the developer. Diagnostics include names shown in
+the chat and never leave the browser unless you copy them.
 
 Typing the same `/zap` command again in the same chat within 30 minutes shows
 **Already paid**. Its default button, "Don't pay again", removes the command
