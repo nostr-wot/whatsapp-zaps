@@ -186,7 +186,7 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      // "Sent you" when paying the person this private chat is with; otherwise
+      // "Zapped you" when paying the person this private chat is with; otherwise
       // mention who was paid (WhatsApp has mentions in groups only).
       chatMessage: parsed.command.recipient === null && kind !== 'group'
         ? zapChatMessage(null, amountSats, comment)

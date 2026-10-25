@@ -180,29 +180,30 @@ export function messagePreview(message: ChatMessage): string {
 
 /**
  * The message after a confirmed zap. In a group, naming who was paid mentions
- * them for real; in a private chat it is just "Sent you …".
+ * them for real; in a private chat it is just "Zapped you …".
  */
 export function zapChatMessage(who: Mention | null, amountSats: number, comment = ''): ChatMessage {
   const text = zapMessage(who ? normalizeText(who.label).replace(/^@/, '') : null, amountSats, comment);
   if (!who) return { text };
+  const amount = `${amountSats.toLocaleString('en-US')} sats`;
   return {
     text,
-    // A space always separates the mention from what follows: text typed right
-    // against a mention can merge into it in some editors and break it.
-    mention: { before: `⚡ Sent ${amountSats.toLocaleString('en-US')} sats to `, who, after: comment ? ` — ${comment}` : '' },
+    // "⚡ Zapped @Name 10 sats": a space always follows the mention, since text
+    // typed right against a mention can merge into it and break it.
+    mention: { before: '⚡ Zapped ', who, after: ` ${amount}${comment ? ` — ${comment}` : ''}` },
   };
 }
 
 /**
  * The chat message posted after a confirmed zap.
  *
- * It is plain text: a typed "@name" is not a WhatsApp mention, it just shows
- * as "@name", so no "@" is used. Paying the person a private chat is with
- * (`to: null`) reads "Sent you …" — their name there would only be the
- * sender's own nickname for them.
+ * This is the plain-text form: a typed "@name" is not a WhatsApp mention, it
+ * just shows as "@name", so no "@" is used (zapChatMessage makes the real
+ * mention). Paying the person a private chat is with (`to: null`) reads
+ * "Zapped you …": their name there would only be the sender's own nickname.
  */
 export function zapMessage(to: string | null, amountSats: number, comment = ''): string {
   const amount = `${amountSats.toLocaleString('en-US')} sats`;
-  const base = to === null ? `⚡ Sent you ${amount}` : `⚡ Sent ${amount} to ${to}`;
+  const base = to === null ? `⚡ Zapped you ${amount}` : `⚡ Zapped ${to} ${amount}`;
   return comment ? `${base} — ${comment}` : base;
 }

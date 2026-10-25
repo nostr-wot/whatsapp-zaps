@@ -81,7 +81,7 @@ describe('runZap', () => {
       'pay:lnbc1inv',
       'markPaid:jid:1@g.us|/zap @alice 1000 lunch',
       'loading:Paid. Posting in the chat…',
-      'post:⚡ Sent 1,000 sats to @Alice — lunch [mention]',
+      'post:⚡ Zapped @Alice 1,000 sats — lunch [mention]',
       'result:paid:sent:cleared',
       'close',
     ]);
@@ -92,20 +92,20 @@ describe('runZap', () => {
     const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' } };
     assert.equal(await runZap('/zap 21 thanks', [], chat, deps), 'paid');
     assert.ok(log.includes('confirm:ana@w.example:21:thanks'));
-    assert.ok(log.includes('post:⚡ Sent you 21 sats — thanks'), 'no nickname in a private chat');
+    assert.ok(log.includes('post:⚡ Zapped you 21 sats — thanks'), 'no nickname in a private chat');
   });
 
   it('in a group, the message mentions who was paid, keeping the picked mention', async () => {
     const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:9@c.us', 'Jaqui', 'j@w.example') });
     await runZap('/zap @Jaqui 21', [{ label: 'Jaqui', id: '9@c.us' }], { ...CHAT, isGroup: true }, deps);
-    assert.ok(log.includes('post:⚡ Sent 21 sats to @Jaqui [mention]'));
+    assert.ok(log.includes('post:⚡ Zapped @Jaqui 21 sats [mention]'));
   });
 
   it('in a private chat, mentioning someone posts plain text (WhatsApp has no mentions there)', async () => {
     const { deps, log } = setup({ store: known });
     const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' }, isGroup: false };
     await runZap('/zap @Alice 5', [], chat, deps);
-    assert.ok(log.includes('post:⚡ Sent 5 sats to Alice'));
+    assert.ok(log.includes('post:⚡ Zapped Alice 5 sats'));
   });
 
   it('asks for a mention when no one is named in a known group', async () => {

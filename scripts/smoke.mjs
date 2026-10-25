@@ -358,7 +358,7 @@ try {
   await lex.keyboard.press('End');
   await lex.keyboard.press('Enter');
   const lexConfirm = await lexDialog(/Confirm zap/);
-  assert.match(lexConfirm, /21 sats .*Post in the chat once the payment is confirmed.*⚡ Sent you 21 sats — thanks/s);
+  assert.match(lexConfirm, /21 sats .*Post in the chat once the payment is confirmed.*⚡ Zapped you 21 sats — thanks/s);
   assert.deepEqual(await sent(), [], 'the command itself was not sent');
   await lex.keyboard.press('Enter'); // Pay
   // Nothing is posted while the wallet is still paying.
@@ -367,7 +367,7 @@ try {
   const lexResult = await lexDialog(/Zap sent/);
   console.log('lexical result:', lexResult);
   assert.match(lexResult, /Payment confirmed.*Posted in the chat/s);
-  assert.deepEqual(await sent(), ['⚡ Sent you 21 sats — thanks']);
+  assert.deepEqual(await sent(), ['⚡ Zapped you 21 sats — thanks']);
   assert.equal((await lexText()).trim(), '', 'box empty after posting');
   assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2);
   if (shotDir) await lex.screenshot({ path: join(shotDir, '9-lexical-posted.png') });
@@ -384,7 +384,7 @@ try {
   await lexDialog(null);
   assert.equal((await lexText()).trim(), '', 'leftover command removed');
   assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2, 'no second payment');
-  assert.deepEqual(await sent(), ['⚡ Sent you 21 sats — thanks']);
+  assert.deepEqual(await sent(), ['⚡ Zapped you 21 sats — thanks']);
 
   // 12. Groups: the posted message carries a real WhatsApp mention.
   await worker.evaluate(async () => {
@@ -435,29 +435,29 @@ try {
   // A. The person picked Jaqui from WhatsApp's list when typing the command: that mention is kept.
   const kept = await groupZap(`mention=${encodeURIComponent('Jaqui:5491177@c.us')}&text=${encodeURIComponent('/zap @Jaqui 21 thanks')}`);
   console.log('kept mention:', kept.messages);
-  assert.match(kept.confirmText, /⚡ Sent 21 sats to\s+@Jaqui\s*— thanks/);
-  assert.deepEqual(kept.messages, ['⚡ Sent 21 sats to @Jaqui{{5491177@c.us}} — thanks'], 'real mention, with the contact id');
+  assert.match(kept.confirmText, /⚡ Zapped\s+@Jaqui\s+21 sats — thanks/);
+  assert.deepEqual(kept.messages, ['⚡ Zapped @Jaqui{{5491177@c.us}} 21 sats — thanks'], 'real mention, with the contact id');
   assert.equal(kept.left, '');
 
   // B. Typed "@Bob" without picking: the extension opens WhatsApp's list and picks Bob.
   const picked = await groupZap(`text=${encodeURIComponent('/zap @Bob 5')}`);
   console.log('picked mention:', picked.messages);
-  assert.deepEqual(picked.messages, ['⚡ Sent 5 sats to @Bob{{5491188@c.us}}']);
+  assert.deepEqual(picked.messages, ['⚡ Zapped @Bob{{5491188@c.us}} 5 sats']);
   assert.equal(picked.left, '');
 
   // C. No member matches: plain text, never a guessed mention.
   const plain = await groupZap(`text=${encodeURIComponent('/zap @Carl 5')}`);
   console.log('plain:', plain.messages);
-  assert.deepEqual(plain.messages, ['⚡ Sent 5 sats to Carl']);
+  assert.deepEqual(plain.messages, ['⚡ Zapped Carl 5 sats']);
   assert.equal(plain.left, '');
 
   // 13. The same three cases with markup the extension has never seen.
   const opaqueKept = await groupZap(`markup=opaque&mention=${encodeURIComponent('Jaqui:5491177@c.us')}&text=${encodeURIComponent('/zap @Jaqui 22 thanks')}`);
   console.log('opaque kept:', opaqueKept.messages);
-  assert.deepEqual(opaqueKept.messages, ['⚡ Sent 22 sats to @Jaqui{{5491177@c.us}} — thanks']);
+  assert.deepEqual(opaqueKept.messages, ['⚡ Zapped @Jaqui{{5491177@c.us}} 22 sats — thanks']);
   const opaquePicked = await groupZap(`markup=opaque&text=${encodeURIComponent('/zap @Bob 5 gracias')}`);
   console.log('opaque picked:', opaquePicked.messages);
-  assert.deepEqual(opaquePicked.messages, ['⚡ Sent 5 sats to @Bob{{5491188@c.us}} — gracias']);
+  assert.deepEqual(opaquePicked.messages, ['⚡ Zapped @Bob{{5491188@c.us}} 5 sats — gracias']);
   const opaqueAmbiguous = await groupZap(`markup=opaque&members=${encodeURIComponent('Bea:1@c.us,Bea Smith:2@c.us')}&text=${encodeURIComponent('/zap @Be 5')}`);
   console.log('opaque ambiguous:', opaqueAmbiguous.messages);
   assert.equal(opaqueAmbiguous.messages.length, 1);

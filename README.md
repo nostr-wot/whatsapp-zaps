@@ -20,7 +20,7 @@ sent.
 ### After paying
 
 The confirm screen has **Post in the chat once the payment is confirmed**,
-ticked by default (your last choice is remembered). The message, `⚡ Sent you 1,000 sats` in a private chat or `⚡ Sent 1,000 sats to @Ana` in a group
+ticked by default (your last choice is remembered). The message, `⚡ Zapped you 1,000 sats` in a private chat or `⚡ Zapped @Ana 1,000 sats` in a group
 (plus your comment, if you gave one), is posted only after the wallet has confirmed the payment with
 its proof. If the payment fails, is declined or its outcome is unknown, nothing
 is posted.
@@ -38,9 +38,8 @@ notified:
 - If you typed her name without picking, the extension opens WhatsApp's own
   mention list (it types `@Ana`) and picks her. It only does that when exactly
   one person fits; otherwise the name is posted as plain text, never a guess.
-- A space and a dash separate the mention from your comment
-  (`⚡ Sent 21 sats to @Ana — thanks`): text typed right against a mention can
-  merge into it and break it.
+- A space always follows the mention (`⚡ Zapped @Ana 21 sats — thanks`):
+  text typed right against a mention can merge into it and break it.
 - Mentions are recognised by how the editor builds them (a piece of the
   message holding exactly `@Name`), and the mention list by what appears after
   `@name` is typed, so neither depends on WhatsApp's exact markup. The smoke
@@ -48,7 +47,7 @@ notified:
   markers.
 - The message is only sent once the box is checked to hold it with the
   mention in place, and no other mention. Private chats have no mentions in WhatsApp, so there it is
-  just `⚡ Sent you …`.
+  just `⚡ Zapped you …`.
 
 If a mention cannot be made, the message goes out as plain text and the
 extension saves a **diagnostic** in your browser: the markup of the message box

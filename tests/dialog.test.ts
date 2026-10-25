@@ -10,8 +10,8 @@ const DETAILS: ConfirmDetails = {
   amountSats: 1000,
   comment: 'lunch',
   chatMessage: {
-    text: '⚡ Sent 1,000 sats to <b>Alice</b>: lunch',
-    mention: { before: '⚡ Sent 1,000 sats to ', who: { label: '<b>Alice</b>', id: '1@c.us' }, after: ': lunch' },
+    text: '⚡ Zapped <b>Alice</b> 1,000 sats — lunch',
+    mention: { before: '⚡ Zapped ', who: { label: '<b>Alice</b>', id: '1@c.us' }, after: ' 1,000 sats — lunch' },
   },
   postByDefault: true,
 };
@@ -86,7 +86,7 @@ describe('ZapDialog', () => {
     const box = root()!.querySelector('#wz-post') as HTMLInputElement;
     assert.equal(box.checked, false);
     assert.match(root()!.textContent!, /Post in the chat once the payment is confirmed/);
-    assert.match(root()!.querySelector('.preview')!.textContent!, /⚡ Sent 1,000 sats to @<b>Alice<\/b>: lunch/);
+    assert.match(root()!.querySelector('.preview')!.textContent!, /⚡ Zapped @<b>Alice<\/b> 1,000 sats — lunch/);
     assert.equal(root()!.querySelector('.preview .mention')!.textContent, '@<b>Alice</b>', 'the mention is shown as one');
     box.checked = true;
     button(/^Pay/).click();
