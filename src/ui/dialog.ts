@@ -6,23 +6,24 @@
 import { isLightningAddress } from '../domain/lnurl.ts';
 import type { PayOutcome } from '../domain/bridge.ts';
 import type { AddressAnswer, Candidate, ConfirmDetails, ZapUi } from '../flow.ts';
+import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
 
 const STYLE = `
 :host { all: initial; }
 .backdrop {
   --bg: #ffffff; --fg: #111b21; --muted: #54656f; --line: #e9edef;
-  --accent: #f7931a; --accent-fg: #111b21; --danger: #d93025; --warn: #b26a00;
+  --accent: #f7931a; --accent-fg: #111b21; --danger: #d93025; --warn: #b26a00; --ok: #00806a;
   position: fixed; inset: 0; z-index: 2147483646;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.45);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  .backdrop { --bg: #233138; --fg: #e9edef; --muted: #aebac1; --line: #3b4a54; --danger: #f28b82; --warn: #fdd663; }
+  .backdrop { --bg: #233138; --fg: #e9edef; --muted: #aebac1; --line: #3b4a54; --danger: #f28b82; --warn: #fdd663; --ok: #00c79c; }
 }
 .card {
   background: var(--bg); color: var(--fg);
-  width: min(380px, calc(100vw - 32px)); box-sizing: border-box;
+  width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
   border-radius: 12px; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,.3);
 }
 h2 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
@@ -46,6 +47,12 @@ button {
 }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 button.option { display: block; width: 100%; text-align: left; border-radius: 8px; margin: 0 0 6px; }
+button.option:disabled { opacity: .55; cursor: default; }
+.row { display: flex; gap: 8px; align-items: flex-start; }
+.row input { flex: 1; }
+.results { max-height: 260px; overflow-y: auto; margin: 0 0 8px; }
+.verified { color: var(--ok); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 `;
 
@@ -73,17 +80,26 @@ export class ZapDialog implements ZapUi {
   private readonly onClosed: () => void;
   private readonly shadowMode: ShadowRootMode;
   private readonly requireTrusted: boolean;
+  private readonly search: ((query: string) => Promise<ProfileResult[]>) | null;
 
   /**
    * The shadow root is closed and buttons ignore synthetic events by default,
    * so WhatsApp's own scripts can neither read the dialog nor press Pay.
    * Tests open the root and accept synthetic clicks.
    */
-  constructor(options: { doc?: Document; onClosed?: () => void; shadowMode?: ShadowRootMode; requireTrusted?: boolean } = {}) {
+  constructor(options: {
+    doc?: Document;
+    onClosed?: () => void;
+    shadowMode?: ShadowRootMode;
+    requireTrusted?: boolean;
+    /** Nostr profile search; without it the address prompt offers no search. */
+    search?: (query: string) => Promise<ProfileResult[]>;
+  } = {}) {
     this.doc = options.doc ?? document;
     this.onClosed = options.onClosed ?? (() => {});
     this.shadowMode = options.shadowMode ?? 'closed';
     this.requireTrusted = options.requireTrusted ?? true;
+    this.search = options.search ?? null;
   }
 
   /** Run `handler` on click, but only for clicks a person made. */
@@ -133,7 +149,10 @@ export class ZapDialog implements ZapUi {
 
   askAddress(name: string, chatTitle: string | null, error?: string): Promise<AddressAnswer | null> {
     return new Promise(resolve => {
-      const input = h('input', { type: 'text', placeholder: 'name@wallet.com', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Lightning Address' });
+      const input = h('input', {
+        type: 'text', placeholder: 'name@wallet.com, npub… or a name', autocomplete: 'off', spellcheck: 'false',
+        'aria-label': 'Lightning Address, or a Nostr name, npub or NIP-05 to search for',
+      });
       const scopeName = 'scope';
       const radio = (value: string, text: string, checked = false) => {
         const r = h('input', { type: 'radio', name: scopeName, value });
@@ -141,34 +160,100 @@ export class ZapDialog implements ZapUi {
         return h('label', { class: 'choice' }, r, text);
       };
       const message = h('p', { class: 'error', role: 'alert' }, error ?? '');
+      const status = h('p', { class: 'muted', 'aria-live': 'polite' });
+      const results = h('div', { class: 'results' });
       const cancel = h('button', { type: 'button' }, 'Cancel');
+      const searchButton = h('button', { type: 'button' }, 'Search Nostr');
       const form = h('form', {},
         h('h2', {}, `⚡ Zap @${name}`),
-        h('p', {}, `What is ${name}'s Lightning Address?`),
-        input,
+        h('p', {}, `What is ${name}'s Lightning Address? Type it, or find ${name} on Nostr.`),
+        h('div', { class: 'row' }, input, this.search ? searchButton : null),
+        status,
+        results,
         chatTitle ? radio('chat', `Remember for “${chatTitle}”`, true) : null,
         radio('global', 'Remember in every chat', !chatTitle),
         radio('once', 'Use once, don’t remember'),
         message,
         h('div', { class: 'actions' }, cancel, h('button', { type: 'submit', class: 'primary' }, 'Continue')),
       );
-      const done = (value: AddressAnswer | null) => { this.onCancel = null; resolve(value); };
+
+      // Set when the address came from a search result; cleared if the user edits it.
+      let picked: { pubkey: string; address: string } | null = null;
+      let searchRun = 0;
+      input.addEventListener('input', () => {
+        if (picked && input.value.trim() !== picked.address) picked = null;
+      });
+
+      const runSearch = async () => {
+        const query = input.value.trim();
+        if (!this.search || !query) return;
+        const run = ++searchRun;
+        message.textContent = '';
+        status.textContent = 'Searching Nostr…';
+        results.replaceChildren();
+        try {
+          const found = await this.search(query);
+          if (run !== searchRun) return;
+          status.textContent = found.length ? 'Pick the right person. Check the npub if names look alike.' : 'No Nostr profiles found.';
+          results.replaceChildren(...found.map(profile => this.profileOption(profile, () => {
+            input.value = profile.lud16!;
+            picked = { pubkey: profile.pubkey, address: profile.lud16! };
+            status.textContent = `Selected ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)} — ${profile.lud16}`;
+            results.replaceChildren();
+            input.focus();
+          })));
+        } catch (err) {
+          if (run !== searchRun) return;
+          status.textContent = '';
+          message.textContent = err instanceof Error ? err.message : String(err);
+        }
+      };
+
+      const done = (value: AddressAnswer | null) => { searchRun++; this.onCancel = null; resolve(value); };
       this.onCancel = () => done(null);
       this.onClick(cancel, () => done(null));
+      this.onClick(searchButton, () => { void runSearch(); });
       form.addEventListener('submit', e => {
         e.preventDefault();
         if (this.requireTrusted && !e.isTrusted) return;
         const address = input.value.trim();
         if (!isLightningAddress(address)) {
+          // Not an address: treat Enter as "search for this".
+          if (this.search && address) { void runSearch(); return; }
           message.textContent = 'That is not a Lightning Address (name@domain).';
           input.focus();
           return;
         }
         const choice = (form.querySelector(`input[name="${scopeName}"]:checked`) as HTMLInputElement | null)?.value;
-        done({ address, remember: choice === 'global' || choice === 'chat' ? choice : null });
+        done({
+          address,
+          remember: choice === 'global' || choice === 'chat' ? choice : null,
+          ...(picked && picked.address === address ? { pubkey: picked.pubkey } : {}),
+        });
       });
       this.focusFirst(this.render(form), 'input');
     });
+  }
+
+  /** One search result as a button; profiles without a Lightning Address are shown but disabled. */
+  private profileOption(profile: ProfileResult, onPick: () => void): HTMLElement {
+    const title = profile.displayName ?? profile.name ?? 'Unnamed profile';
+    const button = h('button', { type: 'button', class: 'option' },
+      h('strong', {}, title),
+      profile.name ? h('span', { class: 'muted' }, ` @${profile.name}`) : null,
+      h('br'),
+      profile.nip05
+        ? h('span', { class: profile.nip05Verified ? 'verified' : 'muted' }, profile.nip05Verified ? `✓ ${profile.nip05}` : `${profile.nip05} (not verified)`)
+        : null,
+      profile.nip05 ? h('br') : null,
+      h('span', { class: 'muted mono' }, shortNpub(profile.npub)),
+      h('br'),
+      profile.lud16 ? h('span', {}, `⚡ ${profile.lud16}`) : h('span', { class: 'muted' }, 'No Lightning Address'),
+    );
+    button.title = profile.npub;
+    if (profile.lud16) this.onClick(button, onPick);
+    else button.disabled = true;
+    return button;
   }
 
   choose(name: string, candidates: Candidate[]): Promise<Candidate | null> {

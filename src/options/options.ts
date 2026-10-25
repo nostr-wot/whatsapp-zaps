@@ -2,6 +2,8 @@
 import { MAPPINGS_STORAGE_KEY } from '../constants.ts';
 import { normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, type MappingScope, type MappingStore } from '../domain/mappings.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
+import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
+import type { BackgroundResponse } from '../domain/messages.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -37,7 +39,9 @@ function table(store: MappingStore, scope: MappingScope): HTMLElement {
   for (const [contactKey, mapping] of rows) {
     const row = body.insertRow();
     row.insertCell().textContent = mapping.displayName;
-    row.insertCell().textContent = mapping.address;
+    const addressCell = row.insertCell();
+    addressCell.textContent = mapping.address;
+    if (mapping.pubkey) addressCell.title = `From Nostr profile ${mapping.pubkey}`;
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = 'Delete';
@@ -111,6 +115,77 @@ $<HTMLInputElement>('import').addEventListener('change', async event => {
   } catch (err) {
     setStatus(err instanceof SyntaxError ? 'That file is not valid JSON.' : err instanceof Error ? err.message : String(err), true);
   }
+});
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+/** One search result, with a form to save its address under a WhatsApp name. */
+function profileRow(profile: ProfileResult): HTMLElement {
+  const row = el('div', 'profile');
+  const who = el('div', 'who');
+  who.append(el('strong', '', profile.displayName ?? profile.name ?? 'Unnamed profile'));
+  if (profile.name) who.append(el('span', 'muted', ` @${profile.name}`));
+  if (profile.nip05) {
+    who.append(el('br'), el('span', profile.nip05Verified ? 'verified' : 'muted',
+      profile.nip05Verified ? `✓ ${profile.nip05}` : `${profile.nip05} (not verified)`));
+  }
+  const npub = el('span', 'muted mono', shortNpub(profile.npub));
+  npub.title = profile.npub;
+  who.append(el('br'), npub, el('br'),
+    profile.lud16 ? el('span', '', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
+  row.append(who);
+
+  if (profile.lud16) {
+    const form = el('form', 'save');
+    const name = el('input');
+    name.required = true;
+    name.value = profile.displayName ?? profile.name ?? '';
+    name.placeholder = 'Name in WhatsApp';
+    name.setAttribute('aria-label', `WhatsApp name for ${profile.displayName ?? profile.npub}`);
+    const save = el('button', 'primary', 'Save');
+    save.type = 'submit';
+    form.append(name, save);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const label = name.value.trim();
+      try {
+        await updateMappings(s => saveMapping(s, { kind: 'global' }, `name:${normalizeName(label)}`, label, profile.lud16!, Date.now(), profile.pubkey));
+        setStatus(`Saved ${label} → ${profile.lud16}.`);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err), true);
+      }
+    });
+    row.append(form);
+  }
+  return row;
+}
+
+let searchRun = 0;
+$('search').addEventListener('submit', async event => {
+  event.preventDefault();
+  const query = String(new FormData(event.currentTarget as HTMLFormElement).get('query') ?? '').trim();
+  if (!query) return;
+  const run = ++searchRun;
+  const status = $('search-status');
+  status.textContent = 'Searching Nostr…';
+  status.className = 'muted';
+  $('search-results').replaceChildren();
+  const response = await chrome.runtime.sendMessage({ type: 'search', query }) as BackgroundResponse<ProfileResult[]> | undefined;
+  if (run !== searchRun) return;
+  if (!response?.ok) {
+    status.textContent = response?.error ?? 'Search failed.';
+    status.className = 'error';
+    return;
+  }
+  status.textContent = response.value.length
+    ? 'Check the npub or a verified NIP-05 before saving: anyone can use any name.'
+    : 'No Nostr profiles found.';
+  $('search-results').replaceChildren(...response.value.map(profileRow));
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

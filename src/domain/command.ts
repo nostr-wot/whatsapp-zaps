@@ -32,11 +32,11 @@ export type ParseResult =
 const USAGE = 'Usage: /zap @name amount [comment]';
 
 // WhatsApp wraps mentions in bidi isolates and sprinkles zero-width marks.
-const INVISIBLES = /[​-‏⁦-⁩﻿]/g;
+const INVISIBLES = /[\u200b-\u200f\u2066-\u2069\ufeff]/g;
 
 /** Strip invisible marks and collapse whitespace. */
 export function normalizeText(text: string): string {
-  return text.replace(INVISIBLES, '').replace(/[\s ]+/g, ' ').trim();
+  return text.replace(INVISIBLES, '').replace(/[\s\u00a0]+/g, ' ').trim();
 }
 
 /** True when the composer text is a `/zap` command (and must not be sent). */

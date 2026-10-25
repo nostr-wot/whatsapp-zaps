@@ -35,7 +35,9 @@ function setup(script: Script = {}) {
   const deps: ZapDeps = {
     ui,
     loadMappings: async () => script.store ?? emptyStore(),
-    saveMapping: async (scope, key, name, address) => { saved.push(`${scope.kind === 'chat' ? scope.chatKey : 'global'}|${key}|${name}|${address}`); },
+    saveMapping: async (scope, key, name, address, pubkey) => {
+      saved.push(`${scope.kind === 'chat' ? scope.chatKey : 'global'}|${key}|${name}|${address}${pubkey ? `|${pubkey}` : ''}`);
+    },
     resolve: script.resolve ?? (async a => info(a)),
     invoice: async (address, amountSats, comment) => { log.push(`invoice:${address}:${amountSats}:${comment}`); return { bolt11: 'lnbc1inv', amountSats }; },
     pay: script.pay ?? (async b => { log.push(`pay:${b}`); return { outcome: 'paid', preimage: 'p' }; }),
@@ -77,6 +79,13 @@ describe('runZap', () => {
     assert.equal(await runZap('/zap @Bob 21', [], CHAT, deps), 'paid');
     assert.equal(log[0], 'ask:Bob:Friends');
     assert.deepEqual(saved, ['jid:1@g.us|name:bob|Bob|bob@w.example']);
+  });
+
+  it('remembers which Nostr profile an address came from', async () => {
+    const pk = 'b'.repeat(64);
+    const { deps, saved } = setup({ addresses: [{ address: 'bob@w.example', remember: 'global', pubkey: pk }] });
+    await runZap('/zap @Bob 21', [], CHAT, deps);
+    assert.deepEqual(saved, [`global|name:bob|Bob|bob@w.example|${pk}`]);
   });
 
   it('keys a picked mention by its contact id', async () => {

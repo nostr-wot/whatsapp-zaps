@@ -7,6 +7,7 @@ import { isPayResponse, type PayOutcome, type PayRequest } from '../domain/bridg
 import { saveMapping } from '../domain/mappings.ts';
 import type { BackgroundRequest, BackgroundResponse, RecipientInfo } from '../domain/messages.ts';
 import type { ResolvedInvoice } from '../domain/lnurl.ts';
+import type { ProfileResult } from '../domain/nostr.ts';
 import { runZap } from '../flow.ts';
 import { loadMappings, updateMappings } from '../services/mappingStore.ts';
 import { ZapDialog } from '../ui/dialog.ts';
@@ -41,7 +42,10 @@ function pay(bolt11: string): Promise<PayOutcome> {
 }
 
 let busy = false;
-const dialog = new ZapDialog({ onClosed: () => { busy = false; } });
+const dialog = new ZapDialog({
+  onClosed: () => { busy = false; },
+  search: query => ask<ProfileResult[]>({ type: 'search', query }),
+});
 
 installInterceptor(({ text, mentions, composer }) => {
   busy = true;
@@ -49,8 +53,8 @@ installInterceptor(({ text, mentions, composer }) => {
   void runZap(text, mentions, chat, {
     ui: dialog,
     loadMappings,
-    saveMapping: async (scope, contactKey, displayName, address) => {
-      await updateMappings(store => saveMapping(store, scope, contactKey, displayName, address));
+    saveMapping: async (scope, contactKey, displayName, address, pubkey) => {
+      await updateMappings(store => saveMapping(store, scope, contactKey, displayName, address, Date.now(), pubkey));
     },
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
     invoice: (address, amountSats, comment) => ask<ResolvedInvoice>({ type: 'invoice', address, amountSats, comment }),

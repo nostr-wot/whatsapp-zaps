@@ -111,3 +111,20 @@ describe('sanitizeStore / mergeStores', () => {
     assert.equal(merged.groups[CHAT]['name:alice'].address, 'alice@group.example');
   });
 });
+
+describe('mappings — Nostr pubkey', () => {
+  const PK = 'a'.repeat(64);
+  it('stores a valid pubkey and refuses a malformed one', () => {
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:a', 'A', 'a@x.example', 1, PK);
+    assert.equal(s.global['name:a'].pubkey, PK);
+    assert.equal('pubkey' in saveMapping(emptyStore(), { kind: 'global' }, 'name:a', 'A', 'a@x.example', 1).global['name:a'], false);
+    assert.throws(() => saveMapping(emptyStore(), { kind: 'global' }, 'name:a', 'A', 'a@x.example', 1, 'npub1xyz'), /pubkey/);
+  });
+  it('keeps valid pubkeys through sanitize and drops entries with bad ones', () => {
+    const s = sanitizeStore({ global: {
+      'name:ok': { address: 'a@x.example', displayName: 'A', updatedAt: 1, pubkey: PK },
+      'name:bad': { address: 'b@x.example', displayName: 'B', updatedAt: 1, pubkey: 'zz' },
+    } });
+    assert.deepEqual(Object.keys(s.global), ['name:ok']);
+  });
+});

@@ -16,7 +16,7 @@ function fails(text: string, pattern: RegExp) {
 
 describe('isZapCommand', () => {
   it('recognizes /zap with or without arguments, in any case', () => {
-    for (const text of ['/zap', '/zap @a 1', '/ZAP @a 1', '  /zap @a 1', '‎/zap @a 1']) assert.equal(isZapCommand(text), true, text);
+    for (const text of ['/zap', '/zap @a 1', '/ZAP @a 1', '  /zap @a 1', '\u200e/zap @a 1']) assert.equal(isZapCommand(text), true, text);
   });
   it('ignores other text', () => {
     for (const text of ['zap @a 1', '/zapper', 'hello /zap', '', '/za']) assert.equal(isZapCommand(text), false, text);
@@ -25,7 +25,7 @@ describe('isZapCommand', () => {
 
 describe('normalizeText', () => {
   it('strips bidi isolates and zero-width marks and collapses spaces', () => {
-    assert.equal(normalizeText('⁨@Alice⁩ ​ 1000 \n'), '@Alice 1000');
+    assert.equal(normalizeText('\u2068@Alice\u2069\u00a0\u200b 1000 \n'), '@Alice 1000');
   });
 });
 
@@ -86,7 +86,7 @@ describe('parseZapCommand', () => {
   });
 
   it('survives WhatsApp invisible characters around mentions', () => {
-    const cmd = ok('/zap ⁨@Alice⁩ 1000', [{ label: '⁨@Alice⁩', id: 'x@c.us' }]);
+    const cmd = ok('/zap \u2068@Alice\u2069 1000', [{ label: '\u2068@Alice\u2069', id: 'x@c.us' }]);
     assert.deepEqual(cmd.recipient, { label: 'Alice', id: 'x@c.us' });
   });
 

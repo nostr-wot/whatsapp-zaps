@@ -19,6 +19,8 @@ export interface Mapping {
   /** Name shown in WhatsApp when the mapping was saved. */
   displayName: string;
   updatedAt: number;
+  /** Hex pubkey of the Nostr profile the address was taken from, if any. */
+  pubkey?: string;
 }
 
 export interface MappingStore {
@@ -102,10 +104,15 @@ export function saveMapping(
   displayName: string,
   address: string,
   now: number = Date.now(),
+  pubkey?: string,
 ): MappingStore {
   const parsed = parseLightningAddress(address);
   if (!parsed) throw new Error('Not a valid Lightning Address');
   const mapping: Mapping = { address: `${parsed.name}@${parsed.domain}`, displayName: displayName.trim(), updatedAt: now };
+  if (pubkey) {
+    if (!/^[0-9a-f]{64}$/.test(pubkey)) throw new Error('Invalid Nostr pubkey');
+    mapping.pubkey = pubkey;
+  }
   if (scope.kind === 'global') {
     return { ...store, global: { ...store.global, [contactKey]: mapping } };
   }
@@ -134,7 +141,8 @@ function isMapping(value: unknown): value is Mapping {
   return typeof m.address === 'string'
     && parseLightningAddress(m.address) !== null
     && typeof m.displayName === 'string'
-    && typeof m.updatedAt === 'number';
+    && typeof m.updatedAt === 'number'
+    && (m.pubkey === undefined || (typeof m.pubkey === 'string' && /^[0-9a-f]{64}$/.test(m.pubkey)));
 }
 
 function sanitizeBucket(value: unknown): Record<string, Mapping> {

@@ -31,3 +31,18 @@ export const BRIDGE_RESPONSE = 'WAZAPS_PAY_RESPONSE';
 
 /** How long to wait for Nostr WoT to install window.webln. */
 export const WEBLN_WAIT_MS = 10_000;
+
+// ── Nostr profile search ──
+
+/** Relays asked for a known pubkey's profile (kind 0). */
+export const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'];
+
+/** NIP-50 relays asked for name searches. They see what you search for. */
+export const SEARCH_RELAYS = ['wss://relay.nostr.band', 'wss://search.nos.today'];
+
+export const NOSTR_QUERY_MAX_WAIT_MS = 4_000;
+
+export const MAX_SEARCH_RESULTS = 20;
+
+/** How many results get their NIP-05 checked (one HTTPS request each). */
+export const NIP05_VERIFY_LIMIT = 10;

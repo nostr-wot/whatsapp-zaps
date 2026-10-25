@@ -44,3 +44,12 @@ describe('toRecipientInfo', () => {
     assert.equal('callback' in info, false);
   });
 });
+
+describe('parseBackgroundRequest — search', () => {
+  it('accepts a search query up to the nprofile limit', () => {
+    assert.deepEqual(parseBackgroundRequest({ type: 'search', query: 'alice' }), { type: 'search', query: 'alice' });
+    for (const bad of [{ type: 'search' }, { type: 'search', query: '  ' }, { type: 'search', query: 'x'.repeat(501) }, { type: 'search', query: 5 }]) {
+      assert.equal(parseBackgroundRequest(bad), null, JSON.stringify(bad));
+    }
+  });
+});

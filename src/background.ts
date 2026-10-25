@@ -1,11 +1,13 @@
 /**
- * Background worker: LNURL fetches for the content script.
+ * Background worker: LNURL fetches and Nostr profile searches for the
+ * content script and the options page.
  *
  * Fetching here rather than in the page keeps the requests out of WhatsApp's
  * origin and CSP. Like Nostr WoT, this relies on LNURL servers sending CORS
  * headers — the extension holds no host permission for them.
  */
 import { fetchPayParams, requestInvoice } from './services/lnurl.ts';
+import { poolQuery, searchProfiles } from './services/nostrSearch.ts';
 import {
   isTrustedSender,
   parseBackgroundRequest,
@@ -16,6 +18,9 @@ import {
 import type { ResolvedInvoice } from './domain/lnurl.ts';
 
 async function handle(request: BackgroundRequest): Promise<unknown> {
+  if (request.type === 'search') {
+    return searchProfiles(request.query, { query: poolQuery(), fetchFn: globalThis.fetch.bind(globalThis) });
+  }
   // Each call re-resolves the address: the callback URL never round-trips
   // through the content script, so it cannot be swapped on the way back.
   const params = await fetchPayParams(request.address);
@@ -38,3 +43,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true;
 });
+
+// The toolbar button opens the contacts page; there is no popup.
+chrome.action.onClicked.addListener(() => { void chrome.runtime.openOptionsPage(); });

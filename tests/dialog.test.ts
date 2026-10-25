@@ -98,3 +98,95 @@ describe('ZapDialog', () => {
     assert.equal(closed, 1);
   });
 });
+
+describe('ZapDialog — Nostr search', () => {
+  beforeEach(() => { installDom(); });
+
+  const PK = 'c'.repeat(64);
+  const results = [
+    { pubkey: PK, npub: 'npub1alicealicealicealice', displayName: 'Alice', name: 'alice', nip05: 'alice@a.example', nip05Verified: true, lud16: 'alice@wallet.example', createdAt: 1 },
+    { pubkey: 'd'.repeat(64), npub: 'npub1nolightningnolightning', displayName: 'Alice (no LN)', name: null, nip05: 'alice@b.example', nip05Verified: false, lud16: null, createdAt: 1 },
+  ];
+
+  function withSearch(impl: (q: string) => Promise<typeof results>) {
+    const queries: string[] = [];
+    const dialog = new ZapDialog({ shadowMode: 'open', requireTrusted: false, search: q => { queries.push(q); return impl(q); } });
+    const root = () => document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    const tick = () => new Promise(r => setTimeout(r, 0));
+    return { dialog, root, queries, tick };
+  }
+
+  it('searches on Enter when the input is not an address, and picking a result fills it in', async () => {
+    const t = withSearch(async () => results);
+    const answer = t.dialog.askAddress('Alice', 'Friends');
+    const input = t.root().querySelector('input[type="text"]') as HTMLInputElement;
+    const form = t.root().querySelector('form')!;
+    input.value = 'alice';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await t.tick();
+    assert.deepEqual(t.queries, ['alice']);
+    const options = [...t.root().querySelectorAll('.results button.option')] as HTMLButtonElement[];
+    assert.equal(options.length, 2);
+    assert.match(options[0].textContent!, /✓ alice@a\.example/);
+    assert.match(options[1].textContent!, /not verified/);
+    assert.equal(options[1].disabled, true);
+    options[0].click();
+    assert.equal(input.value, 'alice@wallet.example');
+    assert.match(t.root().textContent!, /Selected Alice/);
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'chat', pubkey: PK });
+  });
+
+  it('forgets the profile when the address is edited by hand', async () => {
+    const t = withSearch(async () => results);
+    const answer = t.dialog.askAddress('Alice', 'Friends');
+    const input = t.root().querySelector('input[type="text"]') as HTMLInputElement;
+    input.value = 'alice';
+    (([...t.root().querySelectorAll('button')].find(b => b.textContent === 'Search Nostr')) as HTMLButtonElement).click();
+    await t.tick();
+    (t.root().querySelector('.results button.option') as HTMLButtonElement).click();
+    input.value = 'someone@else.example';
+    input.dispatchEvent(new Event('input'));
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'someone@else.example', remember: 'chat' });
+  });
+
+  it('submits a typed Lightning Address directly, without searching', async () => {
+    const t = withSearch(async () => results);
+    const answer = t.dialog.askAddress('Alice', null);
+    (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'alice@wallet.example';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'global' });
+    assert.deepEqual(t.queries, []);
+  });
+
+  it('shows search errors and empty results, and ignores stale answers', async () => {
+    let release!: (r: typeof results) => void;
+    const slow = new Promise<typeof results>(r => { release = r; });
+    let call = 0;
+    const t = withSearch(q => (++call === 1 ? slow : q === 'boom' ? Promise.reject(new Error('relays unreachable')) : Promise.resolve([])));
+    void t.dialog.askAddress('Alice', null);
+    const input = t.root().querySelector('input[type="text"]') as HTMLInputElement;
+    const form = t.root().querySelector('form')!;
+    input.value = 'first';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    input.value = 'second';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await t.tick();
+    assert.match(t.root().textContent!, /No Nostr profiles found/);
+    release(results);
+    await t.tick();
+    assert.equal(t.root().querySelectorAll('.results button.option').length, 0, 'stale results must not appear');
+    input.value = 'boom';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await t.tick();
+    assert.match(t.root().querySelector('.error')!.textContent!, /relays unreachable/);
+  });
+
+  it('offers no search without a search function', () => {
+    const dialog = new ZapDialog({ shadowMode: 'open', requireTrusted: false });
+    void dialog.askAddress('Alice', null);
+    const root = document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    assert.equal([...root.querySelectorAll('button')].some(b => b.textContent === 'Search Nostr'), false);
+  });
+});

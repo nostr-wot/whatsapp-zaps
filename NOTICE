@@ -8,7 +8,12 @@ This extension contains code ported from Nostr WoT
 - src/domain/bolt11.ts      amount rules from src/domain/wallet/bolt11.ts
 - tests/lnurl.test.ts       from tests/wallet/lnurl.test.ts
 
+- src/services/http.ts      from src/services/wallet/lnurl.ts (bounded JSON fetch)
+
 Keep the LNURL safety checks in step with the upstream copies.
+
+The built extension bundles nostr-tools (Unlicense, public domain) and
+@scure/base and @noble/* (MIT, Paul Miller).
 
 WhatsApp is a trademark of WhatsApp LLC. This project is not affiliated with
 or endorsed by WhatsApp or Meta.

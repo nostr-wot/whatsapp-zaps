@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WhatsApp Web Zaps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Type /zap @name 1000 in WhatsApp Web to send sats through the Nostr WoT wallet.",
   "permissions": [
     "storage"
@@ -36,5 +36,8 @@
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
+  },
+  "action": {
+    "default_title": "WhatsApp Web Zaps: contacts and Lightning Addresses"
   }
 }

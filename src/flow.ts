@@ -27,6 +27,8 @@ export interface AddressAnswer {
   address: string;
   /** Where to remember it; null means "just this once". */
   remember: 'chat' | 'global' | null;
+  /** Nostr pubkey when the address was picked from a profile search. */
+  pubkey?: string;
 }
 
 export interface ZapUi {
@@ -51,7 +53,7 @@ export interface ZapUi {
 export interface ZapDeps {
   ui: ZapUi;
   loadMappings(): Promise<MappingStore>;
-  saveMapping(scope: MappingScope, contactKey: string, displayName: string, address: string): Promise<void>;
+  saveMapping(scope: MappingScope, contactKey: string, displayName: string, address: string, pubkey?: string): Promise<void>;
   resolve(address: string): Promise<RecipientInfo>;
   invoice(address: string, amountSats: number, comment: string): Promise<{ bolt11: string; amountSats: number }>;
   pay(bolt11: string): Promise<PayOutcome>;
@@ -99,7 +101,7 @@ async function pickAddress(
       // Only remember an address that resolved.
       const scope: MappingScope | null = answer?.remember === 'global' ? { kind: 'global' }
         : answer?.remember === 'chat' && chat.chatKey ? { kind: 'chat', chatKey: chat.chatKey } : null;
-      if (scope) await deps.saveMapping(scope, contactKeyFor(recipient), recipient.label, info.address);
+      if (scope) await deps.saveMapping(scope, contactKeyFor(recipient), recipient.label, info.address, answer?.pubkey);
       return { address: info.address, info };
     } catch (err) {
       error = `${address}: ${errorMessage(err)}`;

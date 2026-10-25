@@ -34,8 +34,11 @@ Load unpacked) next to Nostr WoT, then open https://web.whatsapp.com.
 
 ## Contacts and Lightning Addresses
 
-The first time you zap someone, the dialog asks for their Lightning Address and
-offers three choices:
+The first time you zap someone, the dialog asks for their Lightning Address.
+You can type it, or **find the person on Nostr**. Type a name, an `npub` or
+`nprofile`, or a NIP-05 address such as `ana@nostr.example`, then press Enter
+or *Search Nostr*. Pick a result and the Lightning Address (`lud16`) from their
+profile is filled in. Then choose how to remember it:
 
 - **Remember for this chat.** For a group where "Alice" means one particular
   person. These entries win over the global list.
@@ -46,8 +49,37 @@ When you pick someone from WhatsApp's mention list, the contact is stored by
 WhatsApp contact id. Typed names are stored by display name. If two saved
 contacts share a name, the dialog asks which one you meant.
 
-The options page lists, deletes, imports and exports mappings. They are stored
-only in `chrome.storage.local`.
+Click the extension's toolbar button to open the **contacts page**. It has:
+
+- the same Nostr search, where each result can be saved under a WhatsApp name,
+- the saved mappings, which you can delete,
+- JSON import and export.
+
+Mappings are stored only in `chrome.storage.local`. When an address came from
+a Nostr profile, that profile's pubkey is saved with it.
+
+### Telling people apart on Nostr
+
+Anyone can call themselves "Ana", so each search result shows:
+
+- **A ✓ next to the NIP-05 address** when the address was checked and really
+  points to that key. An unchecked one says "not verified".
+- **The npub**, shortened; hover for the full key.
+- **Whether the profile has a Lightning Address.** Profiles without one are
+  shown but can't be picked.
+
+Profiles are only accepted with a valid signature, so a relay can't change
+someone's Lightning Address. Verified profiles are listed first.
+
+### Where searches go
+
+- **Names** go to the public NIP-50 search relays (`relay.nostr.band`,
+  `search.nos.today`), which see what you search for.
+- **npub and NIP-05 lookups** ask a few general relays for that one profile.
+  A NIP-05 lookup also fetches `https://<domain>/.well-known/nostr.json`.
+
+The relay lists are in `src/constants.ts`. These lookups use the same
+safeguards as LNURL: no redirects, a timeout and a size cap.
 
 ## How it works
 
@@ -55,7 +87,7 @@ only in `chrome.storage.local`.
 |------|-------|-----|
 | `src/content/isolated.ts` | content script | Intercepts the send, shows the dialog, stores mappings |
 | `src/content/main.ts` | page (MAIN) | Calls `window.webln.enable()` / `sendPayment()` |
-| `src/background.ts` | service worker | LNURL-pay: pay params and the invoice |
+| `src/background.ts` | service worker | LNURL-pay (pay params, invoice) and Nostr profile search |
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
 
 ### Who authorizes the payment
@@ -111,8 +143,14 @@ npm run build
 npm run smoke -- /path/to/chrome   # real-browser end-to-end run against dist/
 ```
 
-The smoke test serves the fixture as `web.whatsapp.com` and a fake Lightning
-Address host from a local HTTPS server, and stubs `window.webln`.
+The smoke test runs one local HTTPS/WebSocket server that serves:
+
+- the fixture, as `web.whatsapp.com`,
+- a fake Lightning Address host,
+- a NIP-05 host,
+- the Nostr relays, with every default relay hostname mapped to it.
+
+It also stubs `window.webln`.
 
 ## License
 
