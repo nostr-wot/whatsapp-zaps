@@ -4,6 +4,7 @@
  */
 import { BRIDGE_RESPONSE, WEBLN_WAIT_MS } from '../constants.ts';
 import { isPayRequest, payWithWebln, type PayResponse } from '../domain/bridge.ts';
+import { installReactionHook } from './reactionHook.ts';
 
 type WeblnWindow = Window & { webln?: Parameters<typeof payWithWebln>[0] };
 
@@ -29,4 +30,9 @@ window.addEventListener('message', async event => {
   const outcome = await payWithWebln(await waitForWebln(), bolt11);
   const response: PayResponse = { type: BRIDGE_RESPONSE, id, ...outcome };
   window.postMessage(response, window.location.origin);
+});
+
+// ⚡ reactions from WhatsApp's own data; see reactionHook.ts.
+installReactionHook(window as Window & { require?: (name: string) => unknown }, message => {
+  window.postMessage(message, window.location.origin);
 });

@@ -49,7 +49,19 @@ message and never touches the message box, so a draft you are typing stays as
 it is. Reactions to your own messages are ignored, and reacting with ⚡ to the
 same message again asks before paying again.
 
-The ⚡ is recognised by the emoji itself (its text, an image's alt text, or a
+**How reactions are noticed.** WhatsApp Web stores every reaction through its
+`WAWebAddonReactionTableMode` module (`reactionTableMode.bulkUpsert`), the same
+place whatsapp-web.js listens for its `message_reaction` event. The extension
+wraps that function, read-only, to see your own ⚡ reaction, the message it is
+on and that message's author — independent of what WhatsApp's picker and
+badges look like. WhatsApp's function always runs first and unchanged; the
+hook only starts once a chat is open. It ignores reactions older than two
+minutes (history synced on load) and reactions made without a click or key
+press on this page in the last 15 seconds (made on your phone). The popup's
+Troubleshooting section shows whether this is active.
+
+If WhatsApp renames that module, the extension falls back to reading the
+screen: the ⚡ is recognised by the emoji itself (its text, an image's alt text, or a
 label naming it), on press, since a picker may close before any click. The
 message is the one WhatsApp then marks with a ⚡ reaction badge; without a
 badge, the message last clicked is used if recent. ⚡ in the emoji panel used

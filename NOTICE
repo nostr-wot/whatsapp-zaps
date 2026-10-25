@@ -12,6 +12,11 @@ This extension contains code ported from Nostr WoT
 
 Keep the LNURL safety checks in step with the upstream copies.
 
+Where WhatsApp Web stores reactions (module WAWebAddonReactionTableMode,
+function reactionTableMode.bulkUpsert, and the reaction fields) was taken from
+whatsapp-web.js (https://github.com/pedroslopez/whatsapp-web.js, Apache-2.0),
+which maintains these names against current WhatsApp Web.
+
 The built extension bundles nostr-tools (Unlicense, public domain) and
 @scure/base and @noble/* (MIT, Paul Miller).
 

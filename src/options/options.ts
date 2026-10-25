@@ -4,7 +4,7 @@
  */
 import {
   DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
-  TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
+  REACTION_HOOK_STATUS_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
 } from '../constants.ts';
 import {
   normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore,
@@ -326,6 +326,18 @@ $('copy-diagnostics').addEventListener('click', async () => {
   }
 });
 
+async function renderReactionStatus() {
+  const status = (await chrome.storage.local.get(REACTION_HOOK_STATUS_KEY))[REACTION_HOOK_STATUS_KEY] as { ok?: boolean; detail?: string; at?: number } | undefined;
+  const el = $('reaction-status');
+  if (!status || typeof status.at !== 'number') {
+    el.textContent = '⚡ reactions: not seen yet. Open a chat in WhatsApp Web (reload the tab after installing).';
+  } else if (status.ok) {
+    el.textContent = `⚡ reactions: active — reading WhatsApp's own reaction data (since ${new Date(status.at).toLocaleTimeString()}).`;
+  } else {
+    el.textContent = `⚡ reactions: WhatsApp's reaction data is not available (${status.detail}); falling back to reading the screen.`;
+  }
+}
+
 async function renderTrace() {
   const until = Number((await chrome.storage.local.get(TRACE_REACTIONS_UNTIL_KEY))[TRACE_REACTIONS_UNTIL_KEY]) || 0;
   $<HTMLInputElement>('trace-reactions').checked = until > Date.now();
@@ -349,10 +361,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (MAPPINGS_STORAGE_KEY in changes) void render();
   if (DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
+  if (REACTION_HOOK_STATUS_KEY in changes) void renderReactionStatus();
 void renderTrace();
+void renderReactionStatus();
 });
 
 void render();
 void renderSettings();
 void renderDiagnosticsCount();
 void renderTrace();
+void renderReactionStatus();

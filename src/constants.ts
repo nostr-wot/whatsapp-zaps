@@ -76,6 +76,9 @@ export const REACTION_AMOUNT_KEY = 'reactionZapSats';
 
 export const DEFAULT_REACTION_SATS = 21;
 
+/** How ⚡ reactions are detected in the open WhatsApp tab: `{ ok, detail, at }`. */
+export const REACTION_HOOK_STATUS_KEY = 'reactionHookStatus';
+
 /** Show the ⚡ zap button beside messages on hover (default on). */
 export const ZAP_BUTTON_KEY = 'zapButton';
 

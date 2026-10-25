@@ -677,6 +677,68 @@ try {
   assert.equal(await hover.$eval(lexBox, el => el.textContent), 'my draft', 'the draft is untouched');
   await hover.close();
 
+  // 20. ⚡ reaction read from WhatsApp's own data: a picker nothing can recognise and no
+  //     badge on screen — only WhatsApp's reaction store (simulated here) knows.
+  const internal = await context.newPage();
+  await internal.addInitScript(() => {
+    const calls = (window.__weblnCalls = []);
+    window.webln = { enabled: true, async enable() {}, async sendPayment(pr) { calls.push(pr); return { preimage: 'dd'.repeat(32) }; } };
+    // WhatsApp's module system, with the two modules the extension reads.
+    const table = { stored: [], bulkUpsert(rows) { this.stored.push(...rows); return true; } };
+    const contacts = { '5491100000000@c.us': { name: 'Ana Paula', pushname: 'Ana' } };
+    const modules = {
+      WAWebAddonReactionTableMode: { reactionTableMode: table },
+      WAWebCollections: { Contact: { get: id => contacts[id] } },
+    };
+    window.require = name => { if (!(name in modules)) throw new Error(`Requiring unknown module "${name}"`); return modules[name]; };
+  });
+  await internal.goto(`https://web.whatsapp.com/?lexical=1&text=${encodeURIComponent('draft here')}`);
+  await internal.waitForFunction(() => window.__lexicalReady);
+  let hookStatus = null;
+  for (let i = 0; i < 50 && !hookStatus?.ok; i++) {
+    hookStatus = (await worker.evaluate(() => chrome.storage.local.get('reactionHookStatus'))).reactionHookStatus;
+    if (!hookStatus?.ok) await new Promise(r => setTimeout(r, 100));
+  }
+  assert.equal(hookStatus?.ok, true, 'hooked into WhatsApp’s reaction store');
+  await internal.evaluate(() => {
+    const picker = document.createElement('div');
+    picker.style.cssText = 'position:fixed;top:40px;left:300px';
+    picker.innerHTML = '<div role="button" id="opaque" style="width:30px;height:30px;background:#fc0"></div>';
+    picker.querySelector('#opaque').addEventListener('mousedown', () => {
+      picker.remove();
+      // What WhatsApp does when the person reacts: store the reaction.
+      window.require('WAWebAddonReactionTableMode').reactionTableMode.bulkUpsert([{
+        id: { fromMe: true, _serialized: 'true_120363000000000000@g.us_R9' },
+        reactionText: '⚡',
+        reactionTimestamp: Date.now(),
+        reactionParentKey: {
+          fromMe: false,
+          remote: { _serialized: '120363000000000000@g.us' },
+          participant: { _serialized: '5491100000000@c.us' },
+          _serialized: 'false_120363000000000000@g.us_INTERNAL_5491100000000@c.us',
+        },
+      }]);
+    });
+    document.body.append(picker);
+  });
+  await internal.click('#opaque');
+  const internalCdp = await context.newCDPSession(internal);
+  let internalText = null;
+  for (let i = 0; i < 50 && !(internalText && /Confirm zap/.test(internalText)); i++) {
+    const { root } = await internalCdp.send('DOM.getDocument', { depth: -1, pierce: true });
+    const host = (function find(n) { if ((n.attributes ?? []).includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); internalText = out.join(' '); }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('internal reaction:', (internalText ?? '').slice(0, 110));
+  assert.match(internalText ?? '', /Confirm zap.*21 sats\s+to Ana Paula.*For your ⚡ reaction/s);
+  await internal.keyboard.press('Enter');
+  await new Promise(r => setTimeout(r, 600));
+  assert.equal((await internal.evaluate(() => window.__weblnCalls)).length, 1, 'paid once');
+  assert.equal(await internal.$eval(lexBox, el => el.textContent), 'draft here', 'nothing posted, draft untouched');
+  assert.equal(await internal.evaluate(() => window.require('WAWebAddonReactionTableMode').reactionTableMode.stored.length), 1, 'WhatsApp stored its reaction as usual');
+  await internal.close();
+
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();
   await toolbar.setViewportSize({ width: 400, height: 600 });
@@ -685,6 +747,7 @@ try {
   assert.equal(await toolbar.isVisible('#backup'), false, 'backup only on the full page');
   assert.equal(await toolbar.isVisible('#open-full'), true);
   assert.equal(await toolbar.isVisible('#search-query'), true);
+  assert.match(await toolbar.textContent('#reaction-status'), /active — reading WhatsApp's own reaction data/);
   assert.equal(await toolbar.evaluate(() => document.documentElement.scrollWidth <= 400), true, 'no sideways scroll');
   if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8-toolbar.png') });
   const manifest = await worker.evaluate(() => chrome.runtime.getManifest());

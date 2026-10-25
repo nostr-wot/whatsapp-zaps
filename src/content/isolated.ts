@@ -52,6 +52,8 @@ import { installReplyTracker } from '../whatsapp/replies.ts';
 import { installReactionWatcher } from '../whatsapp/reactions.ts';
 import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY } from '../constants.ts';
 import { installZapButton } from '../whatsapp/zapButton.ts';
+import { isHookStatusEvent, isReactionZapEvent } from './reactionHook.ts';
+import { REACTION_HOOK_STATUS_KEY } from '../constants.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
@@ -225,8 +227,34 @@ uninstallers.push(installInterceptor(({ text, mentions, composer }) => {
   void runZap(text, mentions, chat, zapDeps(composer)).finally(() => { busy = false; });
 }, () => busy, document, current));
 
-// ⚡ reaction to a message: zap its author.
+// ⚡ reactions, from WhatsApp's own data when available (see reactionHook.ts,
+// running in the page); the screen-based watcher below is the fallback.
+let reactionHookActive = false;
+function zapForReaction(target: { name: string | null; id: string | null; messageId: string }) {
+  if (orphaned() || busy) return;
+  busy = true;
+  void reactionAmount()
+    .then(amount => runReactionZap({ ...target, fromMe: false }, amount, chatContext(), zapDeps(null)))
+    .finally(() => { busy = false; });
+}
+window.addEventListener('message', event => {
+  if (event.source !== window || event.origin !== window.location.origin) return;
+  if (isHookStatusEvent(event.data)) {
+    reactionHookActive = event.data.ok;
+    if (isExtensionAlive()) {
+      void chrome.storage.local.set({ [REACTION_HOOK_STATUS_KEY]: { ok: event.data.ok, detail: event.data.detail, at: Date.now() } });
+      if (!event.data.ok) void recordDiagnostic('⚡ reactions: WhatsApp data not available, using screen detection', { reason: event.data.detail });
+    }
+    return;
+  }
+  if (!isReactionZapEvent(event.data) || !current()) return;
+  if (event.data.parentFromMe) return;
+  zapForReaction({ name: event.data.authorName, id: event.data.authorId, messageId: event.data.messageId });
+});
+
+// Screen-based fallback: a ⚡ reaction noticed from the page itself.
 const reactions = installReactionWatcher(row => {
+  if (reactionHookActive) return;
   if (orphaned() || busy) return;
   const author = readMessageAuthor(row);
   if (author.fromMe) return;
