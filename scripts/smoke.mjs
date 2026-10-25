@@ -404,6 +404,8 @@ try {
     const memberList = query.includes('members=') ? '' : `members=${encodeURIComponent(members)}&`;
     await tab.goto(`https://web.whatsapp.com/?lexical=1&${memberList}${query}`);
     await tab.waitForFunction(() => window.__lexicalReady);
+    // `norows`: no message ids on the page, so the chat cannot be identified (group or private).
+    if (query.includes('norows')) await tab.evaluate(() => { for (const row of document.querySelectorAll('#main [data-id]')) row.remove(); });
     const tabCdp = await context.newCDPSession(tab);
     const until = async pattern => {
       const deadline = Date.now() + 10_000;
@@ -464,6 +466,12 @@ try {
   assert.doesNotMatch(opaqueAmbiguous.messages[0], /\{\{/, 'two people fit: no guessed mention');
   const diagnostics = await worker.evaluate(() => chrome.storage.local.get('diagnostics'));
   assert.ok(diagnostics.diagnostics.some(d => /mention could not be made/.test(d.what) && /Bea Smith/.test(d.details['what appeared after typing @'])), 'the failed attempt left diagnostics');
+
+  // 14. The reported bug: the page cannot tell it is a group, but the command holds a
+  //     picked mention, so the mention is kept anyway.
+  const unidentified = await groupZap(`norows=1&markup=opaque&mention=${encodeURIComponent('Jaqui:5491177@c.us')}&text=${encodeURIComponent('/zap @Jaqui 10')}`);
+  console.log('unidentified chat:', unidentified.messages);
+  assert.deepEqual(unidentified.messages, ['⚡ Zapped @Jaqui{{5491177@c.us}} 10 sats']);
 
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();

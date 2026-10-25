@@ -77,7 +77,8 @@ installInterceptor(({ text, mentions, composer }) => {
     chatKey: readChatKey(),
     chatTitle: readChatTitle(),
     contact: contact?.kind === 'contact' ? { label: contact.name, id: contact.id } : null,
-    isGroup: contact ? contact.kind === 'group' : null,
+    // Certain only with a chat id: a group id, or a person's. Without one, unknown.
+    isGroup: contact?.kind === 'group' ? true : contact?.kind === 'contact' && contact.id ? false : null,
   };
   void runZap(text, mentions, chat, {
     ui: dialog,
@@ -115,6 +116,10 @@ installInterceptor(({ text, mentions, composer }) => {
             'stage reached': attempt?.stage ?? 'rewrite only',
             'message box after the attempt': attempt?.composerHtml ?? box.outerHTML.slice(0, 20_000),
             'what appeared after typing @': attempt?.listHtml || '(nothing)',
+            'chat as detected': JSON.stringify({ chatKey: readChatKey(), title: readChatTitle(), contact: readChatContact() }),
+            'chat header': document.querySelector('#main header')?.outerHTML.slice(0, 8_000) ?? '(no header found)',
+            'first message rows': [...document.querySelectorAll('#main [data-id]')].slice(0, 3)
+              .map(el => el.getAttribute('data-id')).join('\n') || '(no [data-id] rows)',
           });
         }
       }

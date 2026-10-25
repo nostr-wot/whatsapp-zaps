@@ -48,7 +48,7 @@ describe('parseAmount', () => {
 
 describe('parseZapCommand', () => {
   it('parses a typed mention and amount', () => {
-    assert.deepEqual(ok('/zap @Alice 1000'), { recipient: { label: 'Alice', id: null }, amountSats: 1000, comment: '' });
+    assert.deepEqual(ok('/zap @Alice 1000'), { recipient: { label: 'Alice', id: null }, recipientPicked: false, amountSats: 1000, comment: '' });
   });
 
   it('keeps a comment', () => {
@@ -71,6 +71,8 @@ describe('parseZapCommand', () => {
 
   it('uses a picked mention, with its id, including names with spaces and digits', () => {
     const cmd = ok('/zap @Ana Paula 2 500', [{ label: 'Ana Paula 2', id: '5491100000000@c.us' }]);
+    assert.equal(cmd.recipientPicked, true);
+    assert.equal(ok('/zap @Ana Paula 2 500').recipientPicked, false);
     assert.deepEqual(cmd.recipient, { label: 'Ana Paula 2', id: '5491100000000@c.us' });
     assert.equal(cmd.amountSats, 500);
   });
@@ -91,8 +93,8 @@ describe('parseZapCommand', () => {
   });
 
   it('accepts no mention, for the other person in a one-to-one chat', () => {
-    assert.deepEqual(ok('/zap 1000'), { recipient: null, amountSats: 1000, comment: '' });
-    assert.deepEqual(ok('/zap 21k for lunch'), { recipient: null, amountSats: 21000, comment: 'for lunch' });
+    assert.deepEqual(ok('/zap 1000'), { recipient: null, recipientPicked: false, amountSats: 1000, comment: '' });
+    assert.deepEqual(ok('/zap 21k for lunch'), { recipient: null, recipientPicked: false, amountSats: 21000, comment: 'for lunch' });
     fails('/zap 0', /whole number/);
     fails(`/zap 10 ${'x'.repeat(281)}`, /longer than 280/);
   });

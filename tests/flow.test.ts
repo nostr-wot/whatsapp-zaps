@@ -108,6 +108,25 @@ describe('runZap', () => {
     assert.ok(log.includes('post:⚡ Zapped Alice 5 sats'));
   });
 
+  it('keeps a picked mention even when the page says private or cannot tell (the reported bug)', async () => {
+    for (const isGroup of [false, null]) {
+      const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:9@c.us', 'Fierillo', 'f@w.example') });
+      const chat = { chatKey: null, chatTitle: 'Bitcoiners', contact: { label: 'Bitcoiners', id: null }, isGroup };
+      await runZap('/zap @Fierillo 10', [{ label: 'Fierillo', id: '9@c.us' }], chat, deps);
+      assert.ok(log.includes('post:⚡ Zapped @Fierillo 10 sats [mention]'), `isGroup=${isGroup}: ${log.join(' | ')}`);
+    }
+  });
+
+  it('tries a real mention for a typed name unless the chat is known to be private', async () => {
+    const store = saveMapping(emptyStore(), { kind: 'global' }, 'name:fierillo', 'Fierillo', 'f@w.example');
+    const unknown = setup({ store });
+    await runZap('/zap @Fierillo 10', [], { chatKey: null, chatTitle: 'Bitcoiners', contact: null, isGroup: null }, unknown.deps);
+    assert.ok(unknown.log.includes('post:⚡ Zapped @Fierillo 10 sats [mention]'));
+    const known = setup({ store });
+    await runZap('/zap @Fierillo 10', [], { chatKey: 'jid:5@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '5@c.us' }, isGroup: false }, known.deps);
+    assert.ok(known.log.includes('post:⚡ Zapped Fierillo 10 sats'));
+  });
+
   it('asks for a mention when no one is named in a known group', async () => {
     const { deps, log } = setup({ store: known });
     assert.equal(await runZap('/zap 21', [], { ...CHAT, isGroup: true }, deps), 'invalid');

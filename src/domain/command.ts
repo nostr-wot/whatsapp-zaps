@@ -23,6 +23,11 @@ export interface Mention {
 export interface ZapCommand {
   /** Null when no one was mentioned: in a one-to-one chat that means the other person. */
   recipient: Mention | null;
+  /**
+   * The recipient is a mention picked from WhatsApp's list, not typed text.
+   * WhatsApp only offers mentions in groups, so this also proves the chat is one.
+   */
+  recipientPicked: boolean;
   amountSats: number;
   comment: string;
 }
@@ -103,6 +108,7 @@ export function parseZapCommand(text: string, mentions: Mention[] = [], chat: Ch
 
   let amount: number | null = null;
   let recipient: Mention | null = null;
+  let recipientPicked = false;
 
   // `/zap 1000 @Alice …`
   const leading = rest.split(' ')[0];
@@ -121,12 +127,13 @@ export function parseZapCommand(text: string, mentions: Mention[] = [], chat: Ch
     const amountError = checkAmount(amount);
     if (amountError) return { ok: false, error: amountError };
     if (rest.length > MAX_COMMENT_LENGTH) return { ok: false, error: `The comment is longer than ${MAX_COMMENT_LENGTH} characters.` };
-    return { ok: true, command: { recipient: null, amountSats: amount, comment: rest } };
+    return { ok: true, command: { recipient: null, recipientPicked: false, amountSats: amount, comment: rest } };
   }
 
   const picked = takeRecipient(rest, mentions);
   if (picked) {
     recipient = picked.recipient;
+    recipientPicked = true;
     rest = picked.rest;
   } else {
     // Typed name: words up to the amount (or to the end when the amount came first).
@@ -159,7 +166,7 @@ export function parseZapCommand(text: string, mentions: Mention[] = [], chat: Ch
     return { ok: false, error: `The comment is longer than ${MAX_COMMENT_LENGTH} characters.` };
   }
 
-  return { ok: true, command: { recipient, amountSats: amount, comment } };
+  return { ok: true, command: { recipient, recipientPicked, amountSats: amount, comment } };
 }
 
 /**

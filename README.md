@@ -34,7 +34,9 @@ In a group, `@Ana` in that message is a **real WhatsApp mention**, so Ana is
 notified:
 
 - If you picked Ana from WhatsApp's list while typing `/zap @Ana …`, the
-  mention you made is kept: only the text around it is rewritten.
+  mention you made is kept: only the text around it is rewritten. A picked
+  mention also proves the chat is a group (WhatsApp has mentions nowhere
+  else), so this does not depend on recognising the chat from the page.
 - If you typed her name without picking, the extension opens WhatsApp's own
   mention list (it types `@Ana`) and picks her. It only does that when exactly
   one person fits; otherwise the name is posted as plain text, never a guess.

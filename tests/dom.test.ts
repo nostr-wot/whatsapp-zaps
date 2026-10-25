@@ -19,7 +19,7 @@ describe('WhatsApp DOM adapter', () => {
     const mentions = readMentions(composer);
     assert.deepEqual(mentions, [{ label: 'Ana Paula', id: '5491100000000@c.us' }]);
     const parsed = parseZapCommand(text, mentions);
-    assert.deepEqual(parsed, { ok: true, command: { recipient: { label: 'Ana Paula', id: '5491100000000@c.us' }, amountSats: 1000, comment: 'gracias' } });
+    assert.deepEqual(parsed, { ok: true, command: { recipient: { label: 'Ana Paula', id: '5491100000000@c.us' }, recipientPicked: true, amountSats: 1000, comment: 'gracias' } });
   });
 
   it('joins Lexical paragraphs with newlines', () => {

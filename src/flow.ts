@@ -107,7 +107,7 @@ export interface ChatContext {
 
 function chatKind(chat: ChatContext): ChatKind {
   if (chat.isGroup === true) return 'group';
-  if (chat.isGroup === false || chat.contact) return 'private';
+  if (chat.isGroup === false) return 'private';
   return 'unknown';
 }
 
@@ -158,14 +158,17 @@ async function pickAddress(
  * and logging — all user-facing feedback goes through `deps.ui`.
  */
 export async function runZap(text: string, mentions: Mention[], chat: ChatContext, deps: ZapDeps): Promise<FlowResult> {
-  const kind = chatKind(chat);
-  const parsed = parseZapCommand(text, mentions, kind);
+  const detected = chatKind(chat);
+  const parsed = parseZapCommand(text, mentions, detected);
   if (!parsed.ok) {
     await deps.ui.showError(parsed.error);
     deps.ui.close();
     return 'invalid';
   }
   const { amountSats, comment } = parsed.command;
+  // A mention picked from WhatsApp's list only exists in groups: trust it over
+  // the page-based guess, which can fail on WhatsApp's real markup.
+  const kind: ChatKind = parsed.command.recipientPicked ? 'group' : detected;
   // No mention: pay the person the chat is with. Only a chat known to be a
   // group needs a name; when the kind could not be told, it is taken as a
   // private chat with whoever the header names.
@@ -186,9 +189,11 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      // "Zapped you" when paying the person this private chat is with; otherwise
-      // mention who was paid (WhatsApp has mentions in groups only).
-      chatMessage: parsed.command.recipient === null && kind !== 'group'
+      // - no one named: "Zapped you", the person this private chat is with;
+      // - a picked mention: kept as the real mention, whatever the page guess says;
+      // - a typed name: plain text in a chat known to be private (WhatsApp has no
+      //   mentions there), otherwise a mention made through WhatsApp's list.
+      chatMessage: parsed.command.recipient === null
         ? zapChatMessage(null, amountSats, comment)
         : kind === 'private'
           ? { text: zapMessage(recipient.label, amountSats, comment) }
