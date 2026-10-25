@@ -184,7 +184,8 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     }
     const details: ConfirmDetails = {
       name: recipient.label, recipient: picked.info, amountSats, comment,
-      chatMessage: zapMessage(recipient.label, amountSats),
+      // "Sent you" when paying the person this private chat is with.
+      chatMessage: zapMessage(parsed.command.recipient === null && kind !== 'group' ? null : recipient.label, amountSats, comment),
       postByDefault: deps.postByDefault,
     };
 

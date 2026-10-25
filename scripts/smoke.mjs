@@ -358,7 +358,7 @@ try {
   await lex.keyboard.press('End');
   await lex.keyboard.press('Enter');
   const lexConfirm = await lexDialog(/Confirm zap/);
-  assert.match(lexConfirm, /21 sats .*Post in the chat once the payment is confirmed.*⚡ Zapped @Friends & Family 21 sats/s);
+  assert.match(lexConfirm, /21 sats .*Post in the chat once the payment is confirmed.*⚡ Sent you 21 sats: thanks/s);
   assert.deepEqual(await sent(), [], 'the command itself was not sent');
   await lex.keyboard.press('Enter'); // Pay
   // Nothing is posted while the wallet is still paying.
@@ -367,7 +367,7 @@ try {
   const lexResult = await lexDialog(/Zap sent/);
   console.log('lexical result:', lexResult);
   assert.match(lexResult, /Payment confirmed.*Posted in the chat/s);
-  assert.deepEqual(await sent(), ['⚡ Zapped @Friends & Family 21 sats']);
+  assert.deepEqual(await sent(), ['⚡ Sent you 21 sats: thanks']);
   assert.equal((await lexText()).trim(), '', 'box empty after posting');
   assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2);
   if (shotDir) await lex.screenshot({ path: join(shotDir, '9-lexical-posted.png') });
@@ -384,7 +384,7 @@ try {
   await lexDialog(null);
   assert.equal((await lexText()).trim(), '', 'leftover command removed');
   assert.equal((await lex.evaluate(() => window.__weblnCalls)).length, 2, 'no second payment');
-  assert.deepEqual(await sent(), ['⚡ Zapped @Friends & Family 21 sats']);
+  assert.deepEqual(await sent(), ['⚡ Sent you 21 sats: thanks']);
 
   // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
   const toolbar = await context.newPage();

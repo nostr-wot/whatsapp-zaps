@@ -20,8 +20,8 @@ sent.
 ### After paying
 
 The confirm screen has **Post in the chat once the payment is confirmed**,
-ticked by default (your last choice is remembered). The `⚡ Zapped @Ana 1,000
-sats` message is posted only after the wallet has confirmed the payment with
+ticked by default (your last choice is remembered). The message, `⚡ Sent you 1,000 sats` in a private chat or `⚡ Sent 1,000 sats to Ana` in a group
+(plus your comment, if you gave one), is posted only after the wallet has confirmed the payment with
 its proof. If the payment fails, is declined or its outcome is unknown, nothing
 is posted.
 
@@ -37,8 +37,8 @@ without paying.
 Pressing Enter on a `/zap` command does not send it to the chat. Instead a
 dialog opens, the recipient's Lightning Address is resolved, and you confirm
 the amount. Then your [Nostr WoT](https://github.com/nostr-wot/nostr-wot-extension)
-wallet pays. Afterwards you can add a `⚡ Zapped @Alice 1,000 sats` message to
-the composer, which you send yourself.
+wallet pays. Once the payment is confirmed, a short message saying so is
+posted in the chat (see **After paying**).
 
 ## Requirements
 

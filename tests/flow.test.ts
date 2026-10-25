@@ -80,7 +80,7 @@ describe('runZap', () => {
       'pay:lnbc1inv',
       'markPaid:jid:1@g.us|/zap @alice 1000 lunch',
       'loading:Paid. Posting in the chat…',
-      'post:⚡ Zapped @Alice 1,000 sats',
+      'post:⚡ Sent 1,000 sats to Alice: lunch',
       'result:paid:sent:cleared',
       'close',
     ]);
@@ -91,6 +91,7 @@ describe('runZap', () => {
     const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' } };
     assert.equal(await runZap('/zap 21 thanks', [], chat, deps), 'paid');
     assert.ok(log.includes('confirm:ana@w.example:21:thanks'));
+    assert.ok(log.includes('post:⚡ Sent you 21 sats: thanks'), 'no nickname in a private chat');
   });
 
   it('asks for a mention when no one is named in a known group', async () => {

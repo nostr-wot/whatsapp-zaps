@@ -162,7 +162,16 @@ export function parseZapCommand(text: string, mentions: Mention[] = [], chat: Ch
   return { ok: true, command: { recipient, amountSats: amount, comment } };
 }
 
-/** The chat message offered after a successful zap. */
-export function zapMessage(label: string, amountSats: number): string {
-  return `⚡ Zapped @${label} ${amountSats.toLocaleString('en-US')} sats`;
+/**
+ * The chat message posted after a confirmed zap.
+ *
+ * It is plain text: a typed "@name" is not a WhatsApp mention, it just shows
+ * as "@name", so no "@" is used. Paying the person a private chat is with
+ * (`to: null`) reads "Sent you …" — their name there would only be the
+ * sender's own nickname for them.
+ */
+export function zapMessage(to: string | null, amountSats: number, comment = ''): string {
+  const amount = `${amountSats.toLocaleString('en-US')} sats`;
+  const base = to === null ? `⚡ Sent you ${amount}` : `⚡ Sent ${amount} to ${to}`;
+  return comment ? `${base}: ${comment}` : base;
 }

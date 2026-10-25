@@ -141,6 +141,9 @@ describe('parseZapCommand', () => {
 
 describe('zapMessage', () => {
   it('formats the post-zap chat message', () => {
-    assert.equal(zapMessage('Alice', 21000), '⚡ Zapped @Alice 21,000 sats');
+    assert.equal(zapMessage('Alice', 21000), '⚡ Sent 21,000 sats to Alice');
+    assert.equal(zapMessage(null, 21), '⚡ Sent you 21 sats');
+    assert.equal(zapMessage(null, 21, 'thanks'), '⚡ Sent you 21 sats: thanks');
+    assert.doesNotMatch(zapMessage('Alice', 1), /@/, 'no fake mention');
   });
 });
