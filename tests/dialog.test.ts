@@ -175,7 +175,10 @@ describe('ZapDialog — Nostr search', () => {
     assert.equal(input.value, 'alice@wallet.example');
     assert.match(t.root().textContent!, /Selected Alice/);
     form.dispatchEvent(new Event('submit', { cancelable: true }));
-    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'chat', pubkey: PK });
+    assert.deepEqual(await answer, {
+      address: 'alice@wallet.example', remember: 'chat', pubkey: PK,
+      nostr: { name: 'Alice', nip05: 'alice@a.example', picture: null },
+    });
   });
 
   it('forgets the profile when the address is edited by hand', async () => {
@@ -206,7 +209,10 @@ describe('ZapDialog — Nostr search', () => {
     const answer = t.dialog.askAddress('Alice', null);
     (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'Alice@A.example';
     t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'global', pubkey: PK });
+    assert.deepEqual(await answer, {
+      address: 'alice@wallet.example', remember: 'global', pubkey: PK,
+      nostr: { name: 'Alice', nip05: 'alice@a.example', picture: null },
+    });
   });
 
   it('does not trust an unverified NIP-05 match', async () => {
@@ -429,5 +435,69 @@ describe('ZapDialog — link popup', () => {
     const t = make();
     void t.dialog.link({ contact, current: null, members: [] }, { text: 'x@y.example: LNURL: endpoint returned 404', error: true });
     assert.match(t.root().querySelector('.error')!.textContent!, /404/);
+  });
+});
+
+describe('ZapDialog — the person being paid', () => {
+  beforeEach(() => { installDom(); });
+
+  const base = {
+    name: 'Ana Paula',
+    recipient: { address: 'ana@wallet.example', domain: 'wallet.example', minSats: 1, maxSats: 1000, commentAllowed: 50, description: null },
+    amountSats: 21, comment: 'gracias', chatMessage: null, postByDefault: true,
+  };
+  const PK = 'a'.repeat(64);
+
+  function make(opts: { profile?: (pk: string) => Promise<unknown> } = {}) {
+    const asked: string[] = [];
+    const dialog = new ZapDialog({
+      shadowMode: 'open', requireTrusted: false,
+      avatar: async url => { asked.push(url); return `data:image/png;base64,${url.length}`; },
+      profile: opts.profile as never,
+    });
+    const root = () => document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    return { dialog, root, asked };
+  }
+
+  it('shows the saved Nostr picture, name, verified NIP-05 and address', async () => {
+    const t = make();
+    void t.dialog.confirm({ ...base, person: { pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example', picture: 'https://img.example/ana.png' } } });
+    await new Promise(r => setTimeout(r, 0));
+    const card = t.root().querySelector('.person')!;
+    assert.match(card.textContent!, /Ana Paula.*Ana P.*✓ ana@nostr\.example.*⚡ ana@wallet\.example/s);
+    assert.deepEqual(t.asked, ['https://img.example/ana.png']);
+    assert.ok(card.querySelector('.avatar.lg img'), 'picture shown');
+    assert.match(t.root().querySelector('.hero')!.textContent!, /21\s*sats/);
+    assert.equal(t.root().querySelector('.bubble')!.textContent, 'gracias', 'the comment as a chat bubble');
+  });
+
+  it('fetches the picture of a linked profile that has none saved', async () => {
+    const t = make({ profile: async pk => (pk === PK ? { picture: 'https://img.example/fresh.png' } : null) });
+    void t.dialog.confirm({ ...base, person: { pubkey: PK, nostr: null } });
+    await new Promise(r => setTimeout(r, 10));
+    assert.deepEqual(t.asked, ['https://img.example/fresh.png']);
+    assert.match(t.root().querySelector('.person')!.textContent!, /Nostr/, 'marked as a Nostr profile');
+  });
+
+  it('keeps the person on the waiting and result screens, with a badge', async () => {
+    const t = make();
+    void t.dialog.confirm({ ...base, person: { pubkey: PK, nostr: { name: null, nip05: null, picture: 'https://img.example/a.png' } } });
+    t.dialog.showLoading('Waiting for your wallet…');
+    assert.ok(t.root().querySelector('.loading .ring .avatar'));
+    assert.match(t.root().querySelector('h2')!.textContent!, /Zap Ana Paula/);
+    void t.dialog.showResult({ outcome: 'paid', preimage: 'p' }, { ...base, person: { pubkey: PK, nostr: null } }, null);
+    assert.equal(t.root().querySelector('.result .badge.good')!.textContent, '✓');
+  });
+
+  it('has a close button in the header while the dialog can be dismissed', async () => {
+    const t = make();
+    const answer = t.dialog.confirm({ ...base });
+    const close = t.root().querySelector('h2 button.close') as HTMLButtonElement;
+    assert.equal(close.getAttribute('aria-label'), 'Close');
+    assert.ok(t.root().querySelector('h2 svg.brand'), 'the logo');
+    close.click();
+    assert.equal(await answer, false);
+    t.dialog.showLoading('…');
+    assert.equal(t.root().querySelector('h2 button.close'), null, 'no close while paying');
   });
 });

@@ -9,6 +9,7 @@
 import { fetchPayParams, requestInvoice } from './services/lnurl.ts';
 import { cachedSearch, fetchFollows, poolQuery, searchProfiles } from './services/nostrSearch.ts';
 import { cachedAvatars } from './services/avatar.ts';
+import { npubEncode } from 'nostr-tools/nip19';
 import { FOLLOWS_CACHE_KEY, FOLLOWS_CACHE_MS, MY_PUBKEY_KEY, SEARCH_CACHE_MS } from './constants.ts';
 
 const fetchFn = globalThis.fetch.bind(globalThis);
@@ -49,6 +50,11 @@ import type { ResolvedInvoice } from './domain/lnurl.ts';
 async function handle(request: BackgroundRequest): Promise<unknown> {
   if (request.type === 'search') return searchFor(request.query);
   if (request.type === 'avatar') return avatar(request.url);
+  // A linked contact's current profile, for their picture (cached with searches).
+  if (request.type === 'profile') {
+    const found = await searchFor(npubEncode(request.pubkey));
+    return found.find(p => p.pubkey === request.pubkey) ?? null;
+  }
   // Each call re-resolves the address: the callback URL never round-trips
   // through the content script, so it cannot be swapped on the way back.
   const params = await fetchPayParams(request.address);

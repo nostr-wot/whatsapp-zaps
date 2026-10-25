@@ -8,7 +8,7 @@
 import {
   normalizeText, parseZapCommand, zapChatMessage, zapMessage, type ChatKind, type ChatMessage, type Mention,
 } from './domain/command.ts';
-import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore } from './domain/mappings.ts';
+import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore, type NostrSnapshot } from './domain/mappings.ts';
 import type { RecipientInfo } from './domain/messages.ts';
 import type { PayOutcome } from './domain/bridge.ts';
 import { explainLookupError } from './domain/errors.ts';
@@ -19,8 +19,18 @@ export interface Candidate {
   scope: MappingScope;
 }
 
+/** Who is being paid, as far as the extension knows them. */
+export interface PersonView {
+  /** Their Nostr pubkey (hex) when the contact is linked to a Nostr profile. */
+  pubkey: string | null;
+  /** Their Nostr name, verified NIP-05 and picture, as saved when linked. */
+  nostr: NostrSnapshot | null;
+}
+
 export interface ConfirmDetails {
   name: string;
+  /** Their Nostr profile, when linked: shown with their picture. */
+  person?: PersonView;
   recipient: RecipientInfo;
   amountSats: number;
   comment: string;
@@ -49,6 +59,8 @@ export interface AddressAnswer {
   remember: 'chat' | 'global' | null;
   /** Nostr pubkey when the address was picked from a profile search. */
   pubkey?: string;
+  /** That profile's name, verified NIP-05 and picture, saved with the link. */
+  nostr?: NostrSnapshot;
 }
 
 export interface ZapUi {
@@ -75,7 +87,7 @@ export interface ZapUi {
 export interface ZapDeps {
   ui: ZapUi;
   loadMappings(): Promise<MappingStore>;
-  saveMapping(scope: MappingScope, contactKey: string, displayName: string, address: string, pubkey?: string): Promise<void>;
+  saveMapping(scope: MappingScope, contactKey: string, displayName: string, address: string, pubkey?: string, nostr?: NostrSnapshot): Promise<void>;
   resolve(address: string): Promise<RecipientInfo>;
   invoice(address: string, amountSats: number, comment: string): Promise<{ bolt11: string; amountSats: number }>;
   pay(bolt11: string): Promise<PayOutcome>;
@@ -122,16 +134,22 @@ async function pickAddress(
   deps: ZapDeps,
   chat: ChatContext,
   recipient: Mention,
-): Promise<{ address: string; info: RecipientInfo } | null> {
+): Promise<{ address: string; info: RecipientInfo; person: PersonView } | null> {
   const store = await deps.loadMappings();
   const resolution = resolveRecipient(store, chat.chatKey, recipient);
 
   let address: string | null = null;
-  if (resolution.kind === 'found') address = resolution.mapping.address;
+  let person: PersonView = { pubkey: null, nostr: null };
+  const personOf = (mapping: Mapping): PersonView => ({ pubkey: mapping.pubkey ?? null, nostr: mapping.nostr ?? null });
+  if (resolution.kind === 'found') {
+    address = resolution.mapping.address;
+    person = personOf(resolution.mapping);
+  }
   if (resolution.kind === 'ambiguous') {
     const picked = await deps.ui.choose(recipient.label, resolution.candidates);
     if (!picked) return null;
     address = picked.mapping.address;
+    person = personOf(picked.mapping);
   }
 
   let error: string | undefined;
@@ -141,6 +159,7 @@ async function pickAddress(
       answer = await deps.ui.askAddress(recipient.label, chat.chatKey ? chat.chatTitle ?? 'this chat' : null, error);
       if (!answer) return null;
       address = answer.address;
+      person = { pubkey: answer.pubkey ?? null, nostr: answer.nostr ?? null };
     }
     deps.ui.showLoading(`Looking up ${address}…`);
     try {
@@ -148,8 +167,8 @@ async function pickAddress(
       // Only remember an address that resolved.
       const scope: MappingScope | null = answer?.remember === 'global' ? { kind: 'global' }
         : answer?.remember === 'chat' && chat.chatKey ? { kind: 'chat', chatKey: chat.chatKey } : null;
-      if (scope) await deps.saveMapping(scope, contactKeyFor(recipient), recipient.label, info.address, answer?.pubkey);
-      return { address: info.address, info };
+      if (scope) await deps.saveMapping(scope, contactKeyFor(recipient), recipient.label, info.address, answer?.pubkey, answer?.pubkey ? answer.nostr : undefined);
+      return { address: info.address, info, person };
     } catch (err) {
       error = explainLookupError(address, err);
       address = null;
@@ -271,7 +290,7 @@ async function zapRecipient(
       return 'cancelled';
     }
     const details: ConfirmDetails = {
-      name: recipient.label, recipient: picked.info, amountSats, comment,
+      name: recipient.label, person: picked.person, recipient: picked.info, amountSats, comment,
       chatMessage: opts.chatMessage,
       postByDefault: deps.postByDefault,
       reason: opts.reason,

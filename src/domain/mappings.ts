@@ -199,6 +199,16 @@ export function sanitizeStore(value: unknown): MappingStore {
   return { global: sanitizeBucket(raw.global), groups };
 }
 
+/**
+ * Return a copy of the store with a linked mapping's Nostr snapshot replaced
+ * (a refreshed picture, say). Unchanged when the mapping is gone or unlinked.
+ */
+export function withSnapshot(store: MappingStore, scope: MappingScope, contactKey: string, nostr: NostrSnapshot): MappingStore {
+  const current = findMapping(store, scope, contactKey);
+  if (!current?.pubkey) return store;
+  return saveMapping(store, scope, contactKey, current.displayName, current.address, current.updatedAt, current.pubkey, nostr);
+}
+
 /** The mapping saved for exactly this contact key in this scope, if any. */
 export function findMapping(store: MappingStore, scope: MappingScope, contactKey: string): Mapping | null {
   const bucket = scope.kind === 'global' ? store.global : store.groups[scope.chatKey];

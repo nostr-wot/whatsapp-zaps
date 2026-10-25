@@ -6,7 +6,7 @@
 import { isLightningAddress } from '../domain/lnurl.ts';
 import type { PayOutcome } from '../domain/bridge.ts';
 import type { ChatMessage } from '../domain/command.ts';
-import type { AddressAnswer, Candidate, ChatAftermath, ConfirmAnswer, ConfirmDetails, ZapUi } from '../flow.ts';
+import type { AddressAnswer, Candidate, ChatAftermath, ConfirmAnswer, ConfirmDetails, PersonView, ZapUi } from '../flow.ts';
 import { shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import { npubEncode } from 'nostr-tools/nip19';
 import type { Mapping } from '../domain/mappings.ts';
@@ -17,9 +17,9 @@ const STYLE = `
 :host { all: initial; }
 .backdrop {
   /* WhatsApp Web's own palette, so the dialog looks like part of WhatsApp. */
-  --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef; --field: #ffffff;
-  --tint: #f0f2f5; --tint-line: #e9edef;
-  --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
+  --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef; --field: #f0f2f5;
+  --tint: #f0f2f5; --tint-line: #e9edef; --head: #f0f2f5;
+  --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3; --bubble: #d9fdd3;
   --ok: #008069; --ok-soft: #d9fdd3; --warn: #a05a00; --warn-soft: #fff3d6; --bad: #ea0038; --bad-soft: #fde8ec;
   --scrim: rgba(11, 20, 26, .45); --shadow: 0 17px 50px rgba(11, 20, 26, .19), 0 12px 15px rgba(11, 20, 26, .24);
   position: fixed; inset: 0; z-index: 2147483646;
@@ -27,36 +27,41 @@ const STYLE = `
   background: var(--scrim); backdrop-filter: blur(2px);
   font: 14.2px/1.45 "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif;
   color: var(--fg);
+  animation: fade .14s ease-out;
 }
 /* WhatsApp's dark theme is its own setting (a class on <body>), not the system's. */
 :host-context(body.dark) .backdrop, :host-context([data-theme="dark"]) .backdrop {
   --card: #233138; --fg: #e9edef; --muted: #8696a0; --line: #313d45; --field: #2a3942;
-  --tint: #202c33; --tint-line: #313d45;
-  --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
+  --tint: #202c33; --tint-line: #313d45; --head: #202c33;
+  --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b; --bubble: #005c4b;
   --ok: #06cf9c; --ok-soft: #0b3b33; --warn: #ffbc2d; --warn-soft: #3a2f12; --bad: #f15c6d; --bad-soft: #3b1d23;
   --scrim: rgba(0, 0, 0, .6); --shadow: 0 17px 50px rgba(0, 0, 0, .45);
   color-scheme: dark;
 }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 .card {
   background: var(--card); color: var(--fg);
-  width: min(440px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
-  border-radius: 16px; padding: 0 20px 20px; box-shadow: var(--shadow);
-  border: 1px solid var(--line);
+  width: min(420px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
+  border-radius: 18px; padding: 0 22px 22px; box-shadow: var(--shadow);
+  animation: rise .18s cubic-bezier(.2, .8, .2, 1);
 }
-/* The first heading is the dialog's header band. */
+
+/* Header band: logo, title, close. */
 h2 {
-  display: flex; align-items: center; gap: 10px;
-  margin: 0 -20px 16px; padding: 14px 20px;
-  background: var(--tint); border-bottom: 1px solid var(--tint-line);
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 -22px 18px; padding: 14px 14px 14px 22px;
+  background: var(--head); border-bottom: 1px solid var(--tint-line);
   font-size: 16px; font-weight: 650; letter-spacing: -.01em;
-  position: sticky; top: 0; z-index: 1;
+  position: sticky; top: 0; z-index: 2;
 }
-h2::before {
-  content: "⚡"; display: inline-grid; place-items: center; flex: none;
-  width: 28px; height: 28px; border-radius: 8px;
-  background: var(--zap); color: var(--zap-fg); font-size: 15px;
+.brand { flex: none; width: 30px; height: 30px; border-radius: 9px; display: block; }
+button.close {
+  margin-left: auto; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; font-size: 22px; line-height: 1; color: var(--muted); background: transparent;
 }
-h3 { margin: 18px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+button.close:hover:not(:disabled) { background: var(--line); color: var(--fg); }
+h3 { margin: 20px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 p { margin: 0 0 12px; }
 form { display: block; }
 .muted { color: var(--muted); font-size: 13px; }
@@ -67,47 +72,71 @@ form { display: block; }
 .error:empty, .ok:empty, .muted:empty { display: none; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 
+/* Fields. */
 input[type="text"] {
-  width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px; margin: 0;
-  border: 1.5px solid var(--line); border-radius: 10px; background: var(--field); color: var(--fg); font: inherit;
-  transition: border-color .15s;
+  width: 100%; box-sizing: border-box; height: 42px; padding: 0 14px; margin: 0;
+  border: 1.5px solid transparent; border-radius: 10px; background: var(--field); color: var(--fg); font: inherit;
+  transition: border-color .15s, background .15s;
 }
-input[type="text"]:focus { outline: none; border-color: var(--zap); box-shadow: 0 0 0 3px var(--zap-soft); }
-input[type="radio"] { accent-color: var(--zap); margin: 0; }
-label.choice { display: flex; gap: 10px; align-items: center; padding: 6px 2px; cursor: pointer; }
-input[type="checkbox"] { accent-color: var(--zap); margin: 0; width: 16px; height: 16px; flex: none; }
-label.post { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: 0 0 12px; border-radius: 10px; background: var(--tint); cursor: pointer; }
-label.post .preview { display: block; margin-top: 4px; padding: 6px 10px; border-radius: 8px; background: var(--zap-soft); color: var(--fg); font-size: 13.5px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
-.copy-box { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
-.mention { color: #027eb5; font-weight: 600; }
-:host-context(body.dark) .mention, :host-context([data-theme="dark"]) .mention { color: #53bdeb; }
-.preview-inline { padding: 2px 8px; border-radius: 6px; background: var(--zap-soft); color: var(--fg); }
-.copy-box output { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--zap-soft); user-select: all; overflow-wrap: anywhere; }
+input[type="text"]::placeholder { color: var(--muted); }
+input[type="text"]:focus { outline: none; border-color: var(--zap); background: var(--card); }
+input[type="radio"] { accent-color: var(--zap); margin: 0; width: 18px; height: 18px; }
+label.choice { display: flex; gap: 12px; align-items: center; padding: 8px 4px; cursor: pointer; border-radius: 8px; }
+label.choice:hover { background: var(--tint); }
 .row { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; }
 .row input { flex: 1; min-width: 0; }
 #wz-member { margin-bottom: 10px; }
 
+/* A WhatsApp-style switch. */
+input.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0; cursor: pointer;
+  width: 38px; height: 22px; border-radius: 999px; background: var(--line); transition: background .15s;
+}
+input.switch::before {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s;
+}
+input.switch:checked { background: var(--zap); }
+input.switch:checked::before { transform: translateX(16px); }
+input.switch:focus-visible { outline: 2px solid var(--zap); outline-offset: 2px; }
+
+/* Buttons. */
 button {
-  font: inherit; font-weight: 550; border-radius: 999px; padding: 0 16px; height: 36px; cursor: pointer;
+  font: inherit; font-weight: 600; border-radius: 999px; padding: 0 18px; height: 38px; cursor: pointer;
   border: 1.5px solid var(--line); background: transparent; color: var(--fg); white-space: nowrap;
-  transition: background .15s, border-color .15s, transform .05s;
+  transition: background .15s, border-color .15s, transform .05s, box-shadow .15s;
 }
 button:hover:not(:disabled) { border-color: var(--zap); color: var(--zap-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
-button.primary { background: var(--zap); border-color: var(--zap); color: var(--zap-fg); }
+button.primary { background: var(--zap); border-color: var(--zap); color: var(--zap-fg); box-shadow: 0 1px 2px rgba(11, 20, 26, .2); }
 button.primary:hover:not(:disabled) { background: var(--zap-strong); border-color: var(--zap-strong); color: var(--zap-fg); }
 button.small { height: 30px; padding: 0 12px; font-size: 13px; flex: none; }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, label.choice:focus-within { outline: 2px solid var(--zap); outline-offset: 2px; }
-
 .actions {
   display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
-  position: sticky; bottom: -20px; z-index: 1;
-  margin: 16px -20px -20px; padding: 12px 20px;
+  position: sticky; bottom: -22px; z-index: 1;
+  margin: 18px -22px -22px; padding: 14px 22px;
   background: var(--card); border-top: 1px solid var(--line);
 }
 
-/* People: search results, saved links, name pickers. */
+/* People: avatars, search results, saved links, name pickers. */
+.avatar {
+  flex: none; width: 42px; height: 42px; border-radius: 50%; position: relative; overflow: hidden;
+  display: grid; place-items: center; font-weight: 700; font-size: 17px; color: #fff; text-transform: uppercase;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+}
+.avatar.lg { width: 60px; height: 60px; font-size: 24px; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); animation: fade .2s; }
+.hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
+.hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
+.face { position: relative; flex: none; display: inline-grid; }
+.badge {
+  position: absolute; right: -2px; bottom: -2px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; border: 2.5px solid var(--card);
+}
+.badge.good { background: var(--ok); } .badge.unsure { background: var(--warn); } .badge.bad { background: var(--bad); }
+.badge.zap { background: #ffb800; color: #3b2a00; }
 .results { display: grid; gap: 6px; max-height: 300px; overflow-y: auto; margin: 0 0 10px; }
 .results:empty { display: none; }
 button.option {
@@ -116,64 +145,81 @@ button.option {
 }
 button.option:hover:not(:disabled) { background: var(--tint); border-color: var(--zap); color: var(--fg); }
 button.option:disabled { opacity: .55; }
-.avatar {
-  flex: none; width: 40px; height: 40px; border-radius: 50%; position: relative; overflow: hidden;
-  display: grid; place-items: center; font-weight: 700; font-size: 16px; color: #fff; text-transform: uppercase;
-}
-.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); }
+button.option:focus-visible { outline: 2px solid var(--zap); outline-offset: 1px; background: var(--tint); }
+.who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.who .name { font-weight: 650; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.verified { color: var(--ok); }
+.chip.verified { background: var(--ok-soft); }
+.chip.unverified { background: var(--line); color: var(--muted); }
 .chip.follows { background: var(--zap-soft); color: var(--zap-strong); }
+.chip.nostr { background: #ede7fe; color: #6d28d9; }
+:host-context(body.dark) .chip.nostr, :host-context([data-theme="dark"]) .chip.nostr { background: #2e2550; color: #c4b5fd; }
+.ln { color: var(--zap-strong); font-weight: 600; }
+.ln.none { color: var(--muted); font-weight: 400; }
 button.small.more { justify-self: start; }
-.skeleton { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--line); }
+.skeleton { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--line); animation: pulse 1.2s ease-in-out infinite; }
 .skeleton-dot { background: var(--tint); }
 .skeleton-lines { flex: 1; display: grid; gap: 6px; }
 .skeleton-lines span { height: 10px; border-radius: 5px; background: var(--tint); }
 .skeleton-lines span:first-child { width: 55%; } .skeleton-lines span:last-child { width: 80%; }
-.skeleton { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .55; } }
-button.option:focus-visible { outline: 2px solid var(--zap); outline-offset: 1px; background: var(--tint); }
-.hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
-.hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
-.who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
-.who .name { font-weight: 600; }
-.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
-.chip { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 550; }
-.verified { color: var(--ok); }
-.chip.verified { background: var(--ok-soft); }
-.chip.unverified { background: var(--line); color: var(--muted); }
-.ln { color: var(--zap-strong); font-weight: 550; }
-.ln.none { color: var(--muted); font-weight: 400; }
 .linked { display: grid; gap: 8px; margin: 0 0 4px; }
-.link-row {
-  display: flex; gap: 12px; align-items: center;
-  padding: 12px; border-radius: 12px; background: var(--tint); border: 1px solid var(--tint-line);
-}
+.link-row { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 14px; background: var(--tint); border: 1px solid var(--tint-line); }
 .link-row .who-row { flex: 1; }
 .who-row { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
-.empty { padding: 12px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+.empty { padding: 14px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13px; margin: 0 0 4px; text-align: center; }
+.intro { display: flex; gap: 12px; align-items: center; margin: 0 0 14px; }
+.intro p { margin: 0; }
 
-/* Confirm: the amount is the point. */
-.amount-panel {
-  display: grid; justify-items: center; gap: 2px; padding: 18px 12px; margin: 0 0 14px;
-  border-radius: 14px; background: var(--tint); border: 1px solid var(--tint-line);
+/* Confirm: the amount first, then who. */
+.hero { display: grid; justify-items: center; gap: 2px; padding: 4px 0 14px; }
+.amount { font-size: 40px; font-weight: 750; letter-spacing: -.03em; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.05; }
+.amount .bolt { color: #ffb800; margin-right: 4px; font-size: 32px; }
+.unit { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+.to { color: var(--muted); font-size: 13px; text-transform: lowercase; margin: 0 0 8px; text-align: center; }
+.person { display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 16px; background: var(--tint); margin: 0 0 14px; }
+.person .who { gap: 3px; }
+.person .name { font-size: 16px; }
+.bubble {
+  position: relative; margin: 0 0 14px auto; width: fit-content; max-width: 85%;
+  padding: 7px 10px 8px; border-radius: 8px 0 8px 8px; background: var(--bubble); color: var(--fg);
+  font-size: 14px; overflow-wrap: anywhere; box-shadow: 0 1px .5px rgba(11, 20, 26, .13);
 }
-.amount { font-size: 34px; font-weight: 750; letter-spacing: -.02em; color: var(--zap-strong); font-variant-numeric: tabular-nums; line-height: 1.1; }
-.amount-to { color: var(--muted); font-size: 13px; }
+.bubble::after { content: ""; position: absolute; top: 0; right: -8px; width: 0; height: 0; border-top: 8px solid var(--bubble); border-right: 8px solid transparent; }
+.says { font-size: 13px; color: var(--muted); margin: -4px 0 12px; }
+label.post { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; margin: 0 0 12px; border-radius: 14px; border: 1.5px solid var(--line); cursor: pointer; }
+label.post .preview { display: block; margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--bubble); color: var(--fg); font-size: 13.5px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+.mention { color: #027eb5; font-weight: 600; }
+:host-context(body.dark) .mention, :host-context([data-theme="dark"]) .mention { color: #53bdeb; }
+.preview-inline { padding: 2px 8px; border-radius: 6px; background: var(--bubble); color: var(--fg); }
+.copy-box { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.copy-box output { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--bubble); user-select: all; overflow-wrap: anywhere; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; margin: 0 0 14px; }
 dt { color: var(--muted); }
 dd { margin: 0; overflow-wrap: anywhere; }
 
 /* Outcomes. */
-.state { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 12px; margin: 0 0 12px; }
-.state::before { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; font-weight: 700; }
+.result { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 6px 0 14px; }
+.result .title { font-size: 18px; font-weight: 700; }
+.state { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 12px; margin: 0 0 12px; text-align: left; }
+.state::before { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-weight: 700; }
 .state.good { background: var(--ok-soft); } .state.good::before { content: "✓"; background: var(--ok); color: var(--card); }
 .state.unsure { background: var(--warn-soft); } .state.unsure::before { content: "?"; background: var(--warn); color: var(--card); }
 .state.bad { background: var(--bad-soft); } .state.bad::before { content: "!"; background: var(--bad); color: var(--card); }
 .state p { margin: 0; }
 
-.loading { display: flex; gap: 12px; align-items: center; color: var(--muted); padding: 8px 0 4px; }
-.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--zap-soft); border-top-color: var(--zap); animation: spin .8s linear infinite; }
+/* Waiting: the person's picture inside a turning ring. */
+.loading { display: grid; justify-items: center; gap: 12px; padding: 10px 0 8px; color: var(--muted); text-align: center; }
+.ring { position: relative; display: grid; place-items: center; width: 76px; height: 76px; }
+.ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--zap-soft); border-top-color: var(--zap); animation: spin .9s linear infinite; }
+.spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--zap-soft); border-top-color: var(--zap); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner, .skeleton { animation: none; } * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .skeleton, .ring::before, .backdrop, .card, .avatar img { animation: none; }
+  * { transition: none !important; }
+}
 `;
 
 type Child = Node | string | null | undefined | false;
@@ -198,6 +244,25 @@ function previewParts(message: ChatMessage): Child[] {
   return [m.before, h('span', { class: 'mention' }, `@${m.who.label.replace(/^@/, '')}`), m.after];
 }
 
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** The WhatsApp Zaps mark (as the extension icon), drawn inline: no image request the page could block. */
+function brandMark(): SVGSVGElement {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 128 128');
+  svg.setAttribute('class', 'brand');
+  svg.setAttribute('aria-hidden', 'true');
+  const shape = (tag: string, attrs: Record<string, string>) => {
+    const el = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    svg.append(el);
+  };
+  shape('rect', { width: '128', height: '128', rx: '30', fill: '#00a884' });
+  shape('path', { fill: '#ffffff', d: 'M64 20c25.4 0 46 17.9 46 40s-20.6 40-46 40c-6.2 0-12.1-1.1-17.5-3L24 106l7.2-19.6C23 79.3 18 70.1 18 60c0-22.1 20.6-40 46-40z' });
+  shape('path', { fill: '#ffb800', stroke: '#e08e00', 'stroke-width': '2', 'stroke-linejoin': 'round', d: 'M71 30 45 66h17l-6 29 27-38H66l5-27z' });
+  return svg;
+}
+
 /** A round initial, coloured from a stable key so the same person keeps the same colour. */
 function avatar(label: string, key: string): HTMLElement {
   let hash = 0;
@@ -217,6 +282,9 @@ export class ZapDialog implements ZapUi, LinkUi {
   private readonly requireTrusted: boolean;
   private readonly search: ((query: string) => Promise<ProfileResult[]>) | null;
   private readonly avatar: ((url: string) => Promise<string | null>) | null;
+  private readonly profile: ((pubkey: string) => Promise<ProfileResult | null>) | null;
+  /** Who the current zap is for, so the waiting screens can show them. */
+  private person: { name: string; person?: PersonView } | null = null;
 
   /**
    * The shadow root is closed and buttons ignore synthetic events by default,
@@ -232,6 +300,8 @@ export class ZapDialog implements ZapUi, LinkUi {
     search?: (query: string) => Promise<ProfileResult[]>;
     /** Profile pictures as data: URLs (fetched by the background); initials without it. */
     avatar?: (url: string) => Promise<string | null>;
+    /** A linked contact's current Nostr profile, for a picture that was not saved with the link. */
+    profile?: (pubkey: string) => Promise<ProfileResult | null>;
   } = {}) {
     this.doc = options.doc ?? document;
     this.onClosed = options.onClosed ?? (() => {});
@@ -239,6 +309,7 @@ export class ZapDialog implements ZapUi, LinkUi {
     this.requireTrusted = options.requireTrusted ?? true;
     this.search = options.search ?? null;
     this.avatar = options.avatar ?? null;
+    this.profile = options.profile ?? null;
   }
 
   /** Run `handler` on click, but only for clicks a person made. */
@@ -275,7 +346,46 @@ export class ZapDialog implements ZapUi, LinkUi {
   private render(...children: Child[]): HTMLElement {
     const card = this.mount();
     card.replaceChildren(...children.filter((c): c is Node | string => !!c));
+    // Every screen's header band gets the logo, and a close button while it can be dismissed.
+    const title = card.querySelector('h2');
+    if (title) {
+      title.prepend(brandMark());
+      if (this.onCancel) {
+        const close = h('button', { type: 'button', class: 'close', 'aria-label': 'Close', title: 'Close' }, '×');
+        this.onClick(close, () => this.onCancel?.());
+        title.append(close);
+      }
+    }
     return card;
+  }
+
+  /**
+   * A person's avatar: their Nostr picture when linked (saved with the link, or
+   * fetched by their pubkey when it was not), otherwise their initial.
+   */
+  private personFace(name: string, person: PersonView | undefined, size: 'lg' | '' = ''): HTMLElement {
+    const face = avatar(person?.nostr?.name ?? name, person?.pubkey ?? name);
+    if (size) face.classList.add(size);
+    if (person?.nostr?.picture) {
+      this.loadPicture(face, person.nostr.picture);
+    } else if (person?.pubkey && this.profile) {
+      void this.profile(person.pubkey).then(p => this.loadPicture(face, p?.picture ?? null), () => {});
+    }
+    return face;
+  }
+
+  /** The person card: picture, name, Nostr badges and Lightning Address. */
+  private personCard(name: string, person: PersonView | undefined, address: string): HTMLElement {
+    const nostrName = person?.nostr?.name;
+    return h('div', { class: 'person' },
+      this.personFace(name, person, 'lg'),
+      h('div', { class: 'who' },
+        h('span', { class: 'name' }, name),
+        h('span', { class: 'chips' },
+          nostrName && nostrName !== name ? h('span', { class: 'muted' }, nostrName) : null,
+          person?.nostr?.nip05 ? h('span', { class: 'chip verified' }, `✓ ${person.nostr.nip05}`) : null,
+          person?.pubkey && !person.nostr?.nip05 ? h('span', { class: 'chip nostr' }, 'Nostr') : null),
+        h('span', { class: 'ln' }, `⚡ ${address}`)));
   }
 
   private focusFirst(card: HTMLElement, selector = 'input, button.primary, button') {
@@ -284,7 +394,13 @@ export class ZapDialog implements ZapUi, LinkUi {
 
   showLoading(message: string): void {
     this.onCancel = null;
-    this.render(h('h2', {}, 'Zap'), h('div', { class: 'loading', 'aria-live': 'polite' }, h('span', { class: 'spinner' }), message));
+    const who = this.person;
+    this.render(
+      h('h2', {}, who ? `Zap ${who.name}` : 'Zap'),
+      h('div', { class: 'loading', 'aria-live': 'polite' },
+        who ? h('div', { class: 'ring' }, this.personFace(who.name, who.person, 'lg')) : h('span', { class: 'spinner' }),
+        h('span', {}, message)),
+    );
   }
 
   askAddress(name: string, chatTitle: string | null, error?: string): Promise<AddressAnswer | null> {
@@ -306,7 +422,8 @@ export class ZapDialog implements ZapUi, LinkUi {
       const searchButton = h('button', { type: 'button' }, 'Search Nostr');
       const form = h('form', {},
         h('h2', {}, `Zap @${name}`),
-        h('p', {}, `What is ${name}'s Lightning Address? Type it, or find ${name} on Nostr.`),
+        h('div', { class: 'intro' }, this.personFace(name, undefined),
+          h('p', {}, `What is ${name}'s Lightning Address? Type it, or find ${name} on Nostr.`)),
         h('div', { class: 'row' }, input, this.search ? searchButton : null),
         status,
         results,
@@ -318,7 +435,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       );
 
       // Set when the address came from a search result; cleared if the user edits it.
-      let picked: { pubkey: string; address: string } | null = null;
+      let picked: { pubkey: string; address: string; profile: ProfileResult } | null = null;
       let searchRun = 0;
       input.addEventListener('input', () => {
         if (picked && input.value.trim() !== picked.address) picked = null;
@@ -335,7 +452,7 @@ export class ZapDialog implements ZapUi, LinkUi {
           if (run !== searchRun) return;
           this.showResults(found, status, results, input, profile => {
             input.value = profile.lud16!;
-            picked = { pubkey: profile.pubkey, address: profile.lud16! };
+            picked = { pubkey: profile.pubkey, address: profile.lud16!, profile };
             status.textContent = `Selected ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)} — ${profile.lud16}`;
             results.replaceChildren();
             input.focus();
@@ -354,10 +471,15 @@ export class ZapDialog implements ZapUi, LinkUi {
       this.liveSearch(input, () => { void runSearch(); }, () => picked !== null && input.value.trim() === picked.address);
       const finish = (address: string, profile: ProfileResult | null) => {
         const choice = (form.querySelector(`input[name="${scopeName}"]:checked`) as HTMLInputElement | null)?.value;
+        const from = profile ?? (picked && picked.address === address ? picked.profile : null);
         done({
           address,
           remember: choice === 'global' || choice === 'chat' ? choice : null,
-          ...(profile ? { pubkey: profile.pubkey } : picked && picked.address === address ? { pubkey: picked.pubkey } : {}),
+          // Keep who they are on Nostr with the link: name, verified NIP-05, picture.
+          ...(from ? {
+            pubkey: from.pubkey,
+            nostr: { name: from.displayName ?? from.name, nip05: from.nip05Verified ? from.nip05 : null, picture: from.picture },
+          } : {}),
         });
       };
       // Addresses already checked and confirmed as plain Lightning Addresses.
@@ -549,8 +671,7 @@ export class ZapDialog implements ZapUi, LinkUi {
     const npubEl = npub ? h('span', { class: 'muted mono' }, shortNpub(npub)) : null;
     if (npubEl && npub) npubEl.title = npub;
     const title = member ?? mapping.nostr?.name ?? (npub ? 'Nostr profile' : 'Lightning Address');
-    const face = avatar(member ?? mapping.nostr?.name ?? mapping.address, mapping.pubkey ?? mapping.address);
-    this.loadPicture(face, mapping.nostr?.picture ?? null);
+    const face = this.personFace(member ?? mapping.nostr?.name ?? mapping.address, { pubkey: mapping.pubkey ?? null, nostr: mapping.nostr ?? null });
     return h('div', { class: 'who-row' },
       face,
       h('div', { class: 'who' },
@@ -665,7 +786,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       this.onCancel = () => done(null);
       const options = candidates.map(c => {
         const b = h('button', { type: 'button', class: 'option' },
-          avatar(c.mapping.displayName, c.mapping.pubkey ?? c.mapping.address),
+          this.personFace(c.mapping.displayName, { pubkey: c.mapping.pubkey ?? null, nostr: c.mapping.nostr ?? null }),
           h('span', { class: 'who' },
             h('span', { class: 'name' }, c.mapping.displayName),
             c.mapping.nostr?.nip05 ? h('span', { class: 'chips' }, h('span', { class: 'chip verified' }, `✓ ${c.mapping.nostr.nip05}`)) : null,
@@ -685,37 +806,36 @@ export class ZapDialog implements ZapUi, LinkUi {
   }
 
   confirm(details: ConfirmDetails): Promise<ConfirmAnswer> {
+    this.person = { name: details.name, person: details.person };
     return new Promise(resolve => {
       const done = (value: ConfirmAnswer) => { this.onCancel = null; resolve(value); };
       this.onCancel = () => done(false);
       const cancel = h('button', { type: 'button' }, 'Cancel');
       const pay = h('button', { type: 'button', class: 'primary' }, `Pay ${sats(details.amountSats)}`);
-      const post = h('input', { type: 'checkbox', id: 'wz-post' });
+      const post = h('input', { type: 'checkbox', id: 'wz-post', class: 'switch', role: 'switch' });
       post.checked = details.postByDefault;
       this.onClick(cancel, () => done(false));
       this.onClick(pay, () => done({ post: details.chatMessage !== null && post.checked }));
       const { recipient } = details;
       this.focusFirst(this.render(
         h('h2', {}, 'Confirm zap'),
-        h('div', { class: 'amount-panel' },
-          h('span', { class: 'amount' }, sats(details.amountSats)),
-          h('span', { class: 'amount-to' }, `to ${details.name}`)),
-        h('dl', {},
-          h('dt', {}, 'To'), h('dd', {}, details.name),
-          h('dt', {}, 'Address'), h('dd', { class: 'ln' }, recipient.address),
-          details.comment ? h('dt', {}, 'Comment') : null,
-          details.comment ? h('dd', {}, details.comment) : null,
-          recipient.description ? h('dt', {}, 'Recipient says') : null,
-          recipient.description ? h('dd', { class: 'muted' }, recipient.description) : null,
-        ),
+        // The amount first, then who: "21 sats to <person>".
+        h('div', { class: 'hero' },
+          h('span', { class: 'amount' }, h('span', { class: 'bolt', 'aria-hidden': 'true' }, '⚡'),
+            details.amountSats.toLocaleString('en-US'), h('span', { class: 'unit' }, 'sats'))),
+        h('p', { class: 'to' }, 'to'),
+        this.personCard(details.name, details.person, recipient.address),
+        details.comment ? h('div', { class: 'bubble', title: 'Your comment, sent with the payment' }, details.comment) : null,
         details.comment && recipient.commentAllowed === 0
           ? h('p', { class: 'warn' }, 'This address does not accept comments; it will not be sent.') : null,
         details.comment && recipient.commentAllowed > 0 && details.comment.length > recipient.commentAllowed
           ? h('p', { class: 'warn' }, `The comment will be cut to ${recipient.commentAllowed} characters.`) : null,
+        recipient.description ? h('p', { class: 'says' }, `Recipient says: ${recipient.description}`) : null,
         details.reason ? h('p', { class: 'muted' }, details.reason) : null,
-        details.chatMessage ? h('label', { class: 'post', for: 'wz-post' }, post,
+        details.chatMessage ? h('label', { class: 'post', for: 'wz-post' },
           h('span', {}, 'Post in the chat once the payment is confirmed',
-            h('span', { class: 'preview' }, ...previewParts(details.chatMessage)))) : null,
+            h('span', { class: 'preview' }, ...previewParts(details.chatMessage))),
+          post) : null,
         h('p', { class: 'muted' }, 'Your Nostr WoT wallet pays this and may ask you to approve it.'),
         h('div', { class: 'actions' }, cancel, pay),
       ), 'button.primary');
@@ -733,6 +853,8 @@ export class ZapDialog implements ZapUi, LinkUi {
       const when = minutesAgo < 1 ? 'less than a minute ago' : minutesAgo === 1 ? 'a minute ago' : `${minutesAgo} minutes ago`;
       this.focusFirst(this.render(
         h('h2', {}, 'Already paid'),
+        h('div', { class: 'result' }, h('div', { class: 'face' }, this.personFace(details.name, this.person?.person, 'lg'),
+          h('span', { class: 'badge unsure', 'aria-hidden': 'true' }, '!'))),
         h('div', { class: 'state unsure' },
           h('p', {}, 'You paid ', h('strong', {}, sats(details.amountSats)), ` to ${details.name} ${details.reaction ? 'for a ⚡ reaction to this same message' : 'with this same command'} ${when}.`)),
         h('p', {}, details.reaction
@@ -770,6 +892,7 @@ export class ZapDialog implements ZapUi, LinkUi {
         }
         body = [
           h('h2', {}, 'Zap sent'),
+          this.resultHead(details, 'good', '✓'),
           h('div', { class: 'state good' },
             h('p', {}, h('strong', {}, sats(details.amountSats)), ` to ${details.name} (${details.recipient.address}). Payment confirmed.`)),
           ...notes,
@@ -778,6 +901,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       } else if (outcome.outcome === 'not_paid') {
         body = [
           h('h2', {}, 'Zap not sent'),
+          this.resultHead(details, 'bad', '✕'),
           h('div', { class: 'state bad' }, h('p', { class: 'error', role: 'alert' }, outcome.error)),
           h('p', { class: 'muted' }, 'Nothing was paid and nothing was posted. Your command is still in the message box.'),
           h('div', { class: 'actions' }, close),
@@ -785,6 +909,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       } else {
         body = [
           h('h2', {}, 'Payment status unknown'),
+          this.resultHead(details, 'unsure', '?'),
           h('div', { class: 'state unsure' }, h('p', { class: 'warn', role: 'alert' }, outcome.error)),
           h('p', {}, 'The payment may have gone through, so nothing was posted. Check your wallet’s activity in Nostr WoT before you try again — sending the command again would be a second payment.'),
           h('div', { class: 'actions' }, close),
@@ -792,6 +917,13 @@ export class ZapDialog implements ZapUi, LinkUi {
       }
       this.focusFirst(this.render(...body), 'button.primary');
     });
+  }
+
+  /** The person's picture with a ✓ / ✕ / ? badge, above a result. */
+  private resultHead(details: ConfirmDetails, tone: 'good' | 'bad' | 'unsure', mark: string): HTMLElement {
+    return h('div', { class: 'result' },
+      h('div', { class: 'face' }, this.personFace(details.name, details.person, 'lg'),
+        h('span', { class: `badge ${tone}`, 'aria-hidden': 'true' }, mark)));
   }
 
   showError(message: string): Promise<void> {
@@ -809,6 +941,7 @@ export class ZapDialog implements ZapUi, LinkUi {
   }
 
   close(): void {
+    this.person = null;
     this.host?.remove();
     this.host = null;
     this.card = null;

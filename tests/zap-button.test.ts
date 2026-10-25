@@ -25,6 +25,7 @@ describe('installZapButton', () => {
     rows()[0].querySelector('span')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
     assert.equal(button().hidden, false);
     assert.equal(button().getAttribute('aria-label'), 'Zap 21 sats to Ana Paula');
+    assert.equal(button().textContent, '⚡21', 'shows the amount');
     assert.equal(button().style.left, '226px');
     button().click();
     assert.deepEqual(zapped, [rows()[0]]);

@@ -128,3 +128,22 @@ describe('mappings — Nostr pubkey', () => {
     assert.deepEqual(Object.keys(s.global), ['name:ok']);
   });
 });
+
+describe('withSnapshot', () => {
+  const PK = 'a'.repeat(64);
+  it('replaces a linked mapping’s Nostr snapshot, keeping everything else', async () => {
+    const { withSnapshot } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:a', 'A', 'a@x.example', 5, PK, { name: 'A', nip05: null });
+    const next = withSnapshot(s, { kind: 'global' }, 'name:a', { name: 'A', nip05: null, picture: 'https://img.example/a.png' });
+    assert.deepEqual(next.global['name:a'], {
+      address: 'a@x.example', displayName: 'A', updatedAt: 5, pubkey: PK,
+      nostr: { name: 'A', nip05: null, picture: 'https://img.example/a.png' },
+    });
+  });
+  it('leaves unlinked or missing mappings alone', async () => {
+    const { withSnapshot } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:b', 'B', 'b@x.example', 5);
+    assert.equal(withSnapshot(s, { kind: 'global' }, 'name:b', { name: 'B', nip05: null }), s);
+    assert.equal(withSnapshot(s, { kind: 'global' }, 'name:zzz', { name: 'Z', nip05: null }), s);
+  });
+});

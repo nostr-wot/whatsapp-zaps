@@ -128,6 +128,7 @@ const dialog = new ZapDialog({
   onClosed: () => { busy = false; },
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
   avatar: url => ask<string | null>({ type: 'avatar', url }),
+  profile: pubkey => ask<ProfileResult | null>({ type: 'profile', pubkey }),
 });
 
 /** What the flows need to know about the open chat. */
@@ -148,8 +149,8 @@ function zapDeps(composer: HTMLElement | null): ZapDeps {
   return {
     ui: dialog,
     loadMappings,
-    saveMapping: async (scope, contactKey, displayName, address, pubkey) => {
-      await updateMappings(store => saveMapping(store, scope, contactKey, displayName, address, Date.now(), pubkey));
+    saveMapping: async (scope, contactKey, displayName, address, pubkey, nostr) => {
+      await updateMappings(store => saveMapping(store, scope, contactKey, displayName, address, Date.now(), pubkey, nostr));
     },
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
     invoice: (address, amountSats, comment) => ask<ResolvedInvoice>({ type: 'invoice', address, amountSats, comment }),

@@ -27,6 +27,9 @@ import { build } from 'esbuild';
 import { PROFILE_RELAYS, SEARCH_RELAYS } from '../src/constants.ts';
 
 const dist = resolve('dist');
+
+/** Read dialogs as a screen reader would: decorative (aria-hidden) parts are skipped. */
+const ariaHidden = n => { const a = n.attributes ?? []; const i = a.indexOf('aria-hidden'); return i >= 0 && a[i + 1] === 'true'; };
 const dir = mkdtempSync(join(tmpdir(), 'whatsapp-zaps-smoke-'));
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=smoke',
   '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem')], { stdio: 'ignore' });
@@ -150,7 +153,7 @@ try {
     const out = [];
     (function walk(node) {
       if (node.nodeType === 3 && node.parentId && !/^\s*$/.test(node.nodeValue)) out.push(node.nodeValue);
-      for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) if (child.nodeName !== 'STYLE') walk(child);
+      for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) if (child.nodeName !== 'STYLE' && !ariaHidden(child)) walk(child);
     })(host);
     return out.join(' ');
   }
@@ -294,9 +297,10 @@ try {
     { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
   );
   await shot('5-linked');
-  await page.emulateMedia({ colorScheme: 'dark' });
+  // WhatsApp's own dark theme is a class on <body>; the dialogs follow it.
+  await page.evaluate(() => document.body.classList.add('dark'));
   await shot('6-linked-dark');
-  await page.emulateMedia({ colorScheme: 'light' });
+  await page.evaluate(() => document.body.classList.remove('dark'));
 
   // 9. Private chat: `/zap 21` with no mention pays the linked contact; the command shows in green.
   await clickInDialog(/^Close$/);
@@ -361,7 +365,7 @@ try {
       const { root } = await lexCdp.send('DOM.getDocument', { depth: -1, pierce: true });
       const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
       const out = [];
-      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host);
       last = host ? out.join(' ') : null;
       if (pattern === null ? last === null : last !== null && pattern.test(last)) return last;
       await new Promise(r => setTimeout(r, 100));
@@ -446,7 +450,7 @@ try {
         const { root } = await tabCdp.send('DOM.getDocument', { depth: -1, pierce: true });
         const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
         const out = [];
-        if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+        if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host);
         last = host ? out.join(' ') : null;
         if (last !== null && pattern.test(last)) return last;
         await new Promise(r => setTimeout(r, 100));
@@ -524,7 +528,7 @@ try {
   for (let i = 0; i < 50 && !ownText; i++) {
     const { root } = await ownCdp.send('DOM.getDocument', { depth: -1, pierce: true });
     const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
-    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); ownText = out.join(' '); }
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host); ownText = out.join(' '); }
     else await new Promise(r => setTimeout(r, 100));
   }
   console.log('own reply:', ownText);
@@ -551,7 +555,7 @@ try {
       const { root } = await reactCdp.send('DOM.getDocument', { depth: -1, pierce: true });
       const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
       const out = [];
-      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host);
+      if (host) (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host);
       const text = host ? out.join(' ') : null;
       if (pattern === null ? text === null : text !== null && pattern.test(text)) return text;
       await new Promise(r => setTimeout(r, 100));
@@ -628,7 +632,7 @@ try {
   for (let i = 0; i < 50 && !(spriteText && /Confirm zap/.test(spriteText)); i++) {
     const { root } = await spriteCdp.send('DOM.getDocument', { depth: -1, pierce: true });
     const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
-    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); spriteText = out.join(' '); }
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host); spriteText = out.join(' '); }
     await new Promise(r => setTimeout(r, 100));
   }
   console.log('sprite picker:', (spriteText ?? '').slice(0, 90));
@@ -661,12 +665,13 @@ try {
     if (!box) await new Promise(r => setTimeout(r, 100));
   }
   assert.ok(box, 'the ⚡ button appeared');
+  if (shotDir) await hover.screenshot({ path: join(shotDir, '12-zap-pill.png'), clip: { x: 0, y: 0, width: 420, height: 160 } });
   await hover.mouse.click((box[0] + box[4]) / 2, (box[1] + box[5]) / 2);
   let hoverText = null;
   for (let i = 0; i < 50 && !(hoverText && /Confirm zap/.test(hoverText)); i++) {
     const { root } = await hoverCdp.send('DOM.getDocument', { depth: -1, pierce: true });
     const host = (function find(n) { if ((n.attributes ?? []).includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
-    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); hoverText = out.join(' '); }
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host); hoverText = out.join(' '); }
     await new Promise(r => setTimeout(r, 100));
   }
   console.log('zap button:', (hoverText ?? '').slice(0, 100));
@@ -727,7 +732,7 @@ try {
   for (let i = 0; i < 50 && !(internalText && /Confirm zap/.test(internalText)); i++) {
     const { root } = await internalCdp.send('DOM.getDocument', { depth: -1, pierce: true });
     const host = (function find(n) { if ((n.attributes ?? []).includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
-    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); internalText = out.join(' '); }
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host); internalText = out.join(' '); }
     await new Promise(r => setTimeout(r, 100));
   }
   console.log('internal reaction:', (internalText ?? '').slice(0, 110));
@@ -750,6 +755,11 @@ try {
   assert.match(await toolbar.textContent('#reaction-status'), /active — reading WhatsApp's own reaction data/);
   assert.equal(await toolbar.evaluate(() => document.documentElement.scrollWidth <= 400), true, 'no sideways scroll');
   if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8-toolbar.png') });
+  if (shotDir) {
+    await toolbar.click('#tab-settings');
+    await toolbar.screenshot({ path: join(shotDir, '8b-toolbar-settings.png') });
+    await toolbar.click('#tab-people');
+  }
   const manifest = await worker.evaluate(() => chrome.runtime.getManifest());
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.equal(manifest.icons['128'], 'icons/icon-128.png');
@@ -781,7 +791,7 @@ try {
   for (let i = 0; i < 50 && !orphanText; i++) {
     const { root } = await orphanCdp.send('DOM.getDocument', { depth: -1, pierce: true });
     const host = (function find(n) { if (n.attributes?.includes('data-whatsapp-zaps')) return n; for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) { const f = find(c); if (f) return f; } return null; })(root);
-    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE') walk(c); })(host); orphanText = out.join(' '); }
+    if (host) { const out = []; (function walk(n) { if (n.nodeType === 3 && !/^\s*$/.test(n.nodeValue)) out.push(n.nodeValue); for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? [])]) if (c.nodeName !== 'STYLE' && !ariaHidden(c)) walk(c); })(host); orphanText = out.join(' '); }
     else await new Promise(r => setTimeout(r, 100));
   }
   console.log('orphaned:', orphanText);

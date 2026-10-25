@@ -7,7 +7,7 @@ import {
   REACTION_HOOK_STATUS_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
 } from '../constants.ts';
 import {
-  normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore,
+  normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, withSnapshot,
   type Mapping, type MappingScope, type MappingStore,
 } from '../domain/mappings.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
@@ -18,10 +18,14 @@ import { npubEncode } from 'nostr-tools/nip19';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+/** A snackbar at the bottom, as WhatsApp shows them. */
 function setStatus(message: string, isError = false) {
   const status = $('status');
   status.textContent = message;
-  status.className = isError ? 'error' : '';
+  status.className = `show${isError ? ' error' : ''}`;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => status.classList.remove('show'), isError ? 6000 : 3500);
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
@@ -46,17 +50,20 @@ function avatar(label: string, key: string, picture: string | null | undefined):
   for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   const face = el('span', `avatar hue-${hash % 6}`, [...label.replace(/^[^\p{L}\p{N}]+/u, '')][0] ?? '?');
   face.setAttribute('aria-hidden', 'true');
-  if (picture) {
-    void ask<string | null>({ type: 'avatar', url: picture }).then(data => {
-      if (!data) return;
-      const img = el('img');
-      img.alt = '';
-      img.src = data;
-      img.addEventListener('error', () => img.remove());
-      face.append(img);
-    }, () => {});
-  }
+  if (picture) showPicture(face, picture);
   return face;
+}
+
+/** Put a profile picture (fetched by the background) over an initial. */
+function showPicture(face: HTMLElement, picture: string): void {
+  void ask<string | null>({ type: 'avatar', url: picture }).then(data => {
+    if (!data || face.querySelector('img')) return;
+    const img = el('img');
+    img.alt = '';
+    img.src = data;
+    img.addEventListener('error', () => img.remove());
+    face.append(img);
+  }, () => {});
 }
 
 function chatLabel(chatKey: string): string {
@@ -65,14 +72,32 @@ function chatLabel(chatKey: string): string {
   return chatKey;
 }
 
+/**
+ * A linked contact's picture, when the link was saved without one (older
+ * links): fetch their current profile and keep its picture with the link.
+ */
+function refreshPicture(face: HTMLElement, scope: MappingScope, contactKey: string, mapping: Mapping): void {
+  if (!mapping.pubkey || mapping.nostr?.picture) return;
+  void ask<ProfileResult | null>({ type: 'profile', pubkey: mapping.pubkey }).then(async profile => {
+    if (!profile?.picture) return;
+    showPicture(face, profile.picture);
+    await updateMappings(s => withSnapshot(s, scope, contactKey, {
+      name: mapping.nostr?.name ?? profile.displayName ?? profile.name,
+      nip05: mapping.nostr?.nip05 ?? (profile.nip05Verified ? profile.nip05 : null),
+      picture: profile.picture,
+    }));
+  }, () => {});
+}
+
 /** One saved contact: who, their Nostr profile if linked, their Lightning Address. */
 function contactRow(mapping: Mapping, onDelete: () => void): HTMLElement {
   const row = el('div', 'contact');
   const who = el('div', 'who');
   const top = el('div', 'line');
   top.append(el('strong', '', mapping.displayName));
-  if (mapping.nostr?.name && mapping.nostr.name !== mapping.displayName) top.append(el('span', 'muted', ` · ${mapping.nostr.name}`));
+  if (mapping.nostr?.name && mapping.nostr.name !== mapping.displayName) top.append(el('span', 'muted', mapping.nostr.name));
   if (mapping.nostr?.nip05) top.append(el('span', 'chip verified', `✓ ${mapping.nostr.nip05}`));
+  else if (mapping.pubkey) top.append(el('span', 'chip nostr', 'Nostr'));
   who.append(top, el('span', 'ln', `⚡ ${mapping.address}`));
   if (mapping.pubkey) {
     const npub = npubEncode(mapping.pubkey);
@@ -80,9 +105,11 @@ function contactRow(mapping: Mapping, onDelete: () => void): HTMLElement {
     line.title = npub;
     who.append(line);
   }
-  const remove = el('button', 'small', 'Delete');
+  const remove = el('button', 'icon', '');
   remove.type = 'button';
+  remove.title = `Delete ${mapping.displayName}`;
   remove.setAttribute('aria-label', `Delete ${mapping.displayName}`);
+  remove.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
   remove.addEventListener('click', onDelete);
   row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.pubkey ?? mapping.address, mapping.nostr?.picture), who, remove);
   return row;
@@ -93,16 +120,22 @@ function contactList(store: MappingStore, scope: MappingScope): HTMLElement {
   const rows = Object.entries(bucket).sort(([, a], [, b]) => a.displayName.localeCompare(b.displayName));
   if (rows.length === 0) return el('p', 'empty', 'None saved yet.');
   const list = el('div', 'list');
-  list.append(...rows.map(([contactKey, mapping]) => contactRow(mapping, async () => {
-    await updateMappings(s => removeMapping(s, scope, contactKey));
-    setStatus(`Deleted ${mapping.displayName}.`);
-  })));
+  list.append(...rows.map(([contactKey, mapping]) => {
+    const row = contactRow(mapping, async () => {
+      await updateMappings(s => removeMapping(s, scope, contactKey));
+      setStatus(`Deleted ${mapping.displayName}.`);
+    });
+    refreshPicture(row.querySelector('.avatar') as HTMLElement, scope, contactKey, mapping);
+    return row;
+  }));
   return list;
 }
 
 async function render() {
   const store = await loadMappings();
   $('global').replaceChildren(contactList(store, { kind: 'global' }));
+  const count = Object.keys(store.global).length;
+  $('global-count').textContent = count ? String(count) : '';
   const groups = $('groups');
   const keys = Object.keys(store.groups).sort();
   if (keys.length === 0) {
@@ -234,6 +267,45 @@ $('search').addEventListener('submit', event => {
   event.preventDefault();
   clearTimeout(typing);
   void runSearch(queryInput.value.trim());
+});
+
+// ── Tabs ──
+
+const TAB_KEY = 'wz-tab';
+function selectTab(id: string) {
+  for (const tab of document.querySelectorAll<HTMLButtonElement>('[role="tab"]')) {
+    const on = tab.id === id;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+    $(tab.getAttribute('aria-controls')!).hidden = !on;
+  }
+  try { localStorage.setItem(TAB_KEY, id); } catch { /* a remembered tab is only a convenience */ }
+}
+for (const tab of document.querySelectorAll<HTMLButtonElement>('[role="tab"]')) {
+  tab.addEventListener('click', () => selectTab(tab.id));
+  tab.addEventListener('keydown', event => {
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const at = tabs.indexOf(tab);
+    const next = event.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length] : event.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length] : null;
+    if (next) { event.preventDefault(); selectTab(next.id); next.focus(); }
+  });
+}
+try {
+  const saved = localStorage.getItem(TAB_KEY);
+  if (saved && document.getElementById(saved)?.getAttribute('role') === 'tab') selectTab(saved);
+} catch { /* first visit, or storage blocked: People */ }
+
+$('version').textContent = `Version ${chrome.runtime.getManifest().version}`;
+
+const clearSearch = $<HTMLButtonElement>('search-clear');
+queryInput.addEventListener('input', () => { clearSearch.hidden = !queryInput.value; });
+clearSearch.addEventListener('click', () => {
+  queryInput.value = '';
+  clearSearch.hidden = true;
+  searchRun++;
+  $('search-results').replaceChildren();
+  $('search-status').textContent = '';
+  queryInput.focus();
 });
 
 // ── Settings ──

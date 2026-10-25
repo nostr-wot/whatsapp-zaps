@@ -34,6 +34,7 @@ function setup(script: Script = {}) {
     showLoading: m => { log.push(`loading:${m}`); },
     confirm: async d => {
       log.push(`confirm:${d.recipient.address}:${d.amountSats}:${d.comment}${d.chatMessage ? '' : ':no-post'}${d.reason ? ':reason' : ''}`);
+      if (d.person?.pubkey) log.push(`person:${d.person.pubkey.slice(0, 4)}:${d.person.nostr?.picture ?? '-'}`);
       return script.confirm === false ? false : { post: script.post ?? true };
     },
     confirmRepeat: async (minutes, d) => { log.push(`repeat:${minutes}:${d.name}:${d.amountSats}${d.reaction ? ':reaction' : ''}`); return script.payAgain ?? false; },
@@ -47,8 +48,8 @@ function setup(script: Script = {}) {
   const deps: ZapDeps = {
     ui,
     loadMappings: async () => script.store ?? emptyStore(),
-    saveMapping: async (scope, key, name, address, pubkey) => {
-      saved.push(`${scope.kind === 'chat' ? scope.chatKey : 'global'}|${key}|${name}|${address}${pubkey ? `|${pubkey}` : ''}`);
+    saveMapping: async (scope, key, name, address, pubkey, nostr) => {
+      saved.push(`${scope.kind === 'chat' ? scope.chatKey : 'global'}|${key}|${name}|${address}${pubkey ? `|${pubkey}` : ''}${nostr?.picture ? `|${nostr.picture}` : ''}`);
     },
     resolve: script.resolve ?? (async a => info(a)),
     invoice: async (address, amountSats, comment) => { log.push(`invoice:${address}:${amountSats}:${comment}`); return { bolt11: 'lnbc1inv', amountSats }; },
@@ -202,6 +203,22 @@ describe('runZap', () => {
     const { deps, saved } = setup({ addresses: [{ address: 'bob@w.example', remember: 'global', pubkey: pk }] });
     await runZap('/zap @Bob 21', [], CHAT, deps);
     assert.deepEqual(saved, [`global|name:bob|Bob|bob@w.example|${pk}`]);
+  });
+
+  it('saves the Nostr snapshot of a profile picked in the prompt, and shows them on the confirm screen', async () => {
+    const pk = 'c'.repeat(64);
+    const { deps, saved, log } = setup({ addresses: [{ address: 'bob@w.example', remember: 'global', pubkey: pk, nostr: { name: 'Bob', nip05: null, picture: 'https://img.example/bob.png' } }] });
+    await runZap('/zap @Bob 21', [], CHAT, deps);
+    assert.deepEqual(saved, [`global|name:bob|Bob|bob@w.example|${pk}|https://img.example/bob.png`]);
+    assert.ok(log.includes('person:cccc:https://img.example/bob.png'));
+  });
+
+  it('passes a saved link’s Nostr profile to the confirm screen', async () => {
+    const pk = 'd'.repeat(64);
+    const store = saveMapping(emptyStore(), { kind: 'global' }, 'name:alice', 'Alice', 'alice@w.example', 1, pk, { name: 'Alice N', nip05: null, picture: 'https://img.example/al.png' });
+    const { deps, log } = setup({ store });
+    await runZap('/zap @Alice 5', [], CHAT, deps);
+    assert.ok(log.includes('person:dddd:https://img.example/al.png'));
   });
 
   it('keys a picked mention by its contact id', async () => {

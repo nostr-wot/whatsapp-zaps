@@ -13,7 +13,8 @@ export type BackgroundRequest =
   | { type: 'resolve'; address: string }
   | { type: 'invoice'; address: string; amountSats: number; comment: string }
   | { type: 'search'; query: string }
-  | { type: 'avatar'; url: string };
+  | { type: 'avatar'; url: string }
+  | { type: 'profile'; pubkey: string };
 
 /** What the confirm dialog needs about a recipient. The callback URL stays in the background. */
 export interface RecipientInfo {
@@ -42,6 +43,9 @@ export function toRecipientInfo(params: LnurlPayParams): RecipientInfo {
 export function parseBackgroundRequest(message: unknown): BackgroundRequest | null {
   if (typeof message !== 'object' || message === null) return null;
   const m = message as Record<string, unknown>;
+  if (m.type === 'profile') {
+    return typeof m.pubkey === 'string' && /^[0-9a-f]{64}$/.test(m.pubkey) ? { type: 'profile', pubkey: m.pubkey } : null;
+  }
   if (m.type === 'avatar') {
     return typeof m.url === 'string' && safePictureUrl(m.url) === m.url ? { type: 'avatar', url: m.url } : null;
   }

@@ -31,9 +31,20 @@ WhatsApp's message attributes (`data-id` holds their contact id,
 over the reply. The ⚡ message is sent while the reply is open, so it goes out
 as a reply to their message.
 
+### Who you are paying
+
+Every dialog shows the person: the confirm screen leads with the amount, then
+a card with their picture, name, verified NIP-05 and Lightning Address; the
+waiting screen and the result keep their picture (with a ✓, ✕ or ? badge on
+the result). For contacts linked to a Nostr profile, that is their Nostr
+profile picture — saved with the link, or fetched from Nostr by their pubkey
+for links that have none yet (the contacts page then keeps it with the link).
+Links made from the zap prompt's search save the profile's name, verified
+NIP-05 and picture, just like links made from the ⋮ menu or the contacts page.
+
 ### The ⚡ button on messages
 
-Hover over someone's message and a small ⚡ button appears beside it; click it
+Hover over someone's message and a small "⚡ 21" pill appears beside it; click it
 to zap the author (21 sats by default, the same amount as reactions). It only
 pays: nothing is posted, and the message box is left alone. The extension draws
 this button itself, so it works whatever WhatsApp's own reaction markup looks
@@ -186,8 +197,10 @@ you press Search. A WhatsApp name only reaches a relay if you choose to send it.
 
 ### Toolbar popup and contacts page
 
-Click the extension's toolbar icon for a small **popup** with your saved
-contacts and Nostr search. **Full page** opens the same list in a tab, which
+Click the extension's toolbar icon for a small **popup** with three tabs:
+**People** (Nostr search and your saved contacts), **Groups** (links saved for
+one chat) and **Settings** (amounts, your npub, the ⚡ button, backup and
+troubleshooting). **Full page** opens the same list in a tab, which
 also has backup (JSON import and export); file dialogs close popups, so backup
 lives there. Both have:
 

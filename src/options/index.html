@@ -7,94 +7,132 @@
   <style>
     :root {
       /* WhatsApp Web's palette. */
-      --ground: #f0f2f5; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef;
-      --tint: #f0f2f5; --tint-line: #e9edef;
-      --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
-      --ok: #008069; --ok-soft: #d9fdd3; --bad: #ea0038;
+      --ground: #f0f2f5; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef; --field: #f0f2f5;
+      --tint: #f0f2f5; --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
+      --ok: #008069; --ok-soft: #d9fdd3; --bad: #ea0038; --nostr: #6d28d9; --nostr-soft: #ede7fe;
+      --shadow: 0 1px 3px rgba(11, 20, 26, .08);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --ground: #0b141a; --card: #111b21; --fg: #e9edef; --muted: #8696a0; --line: #222d34;
-        --tint: #202c33; --tint-line: #2a3942;
-        --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
-        --ok: #06cf9c; --ok-soft: #0b3b33; --bad: #f15c6d;
+        --ground: #0b141a; --card: #111b21; --fg: #e9edef; --muted: #8696a0; --line: #222d34; --field: #202c33;
+        --tint: #202c33; --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
+        --ok: #06cf9c; --ok-soft: #0b3b33; --bad: #f15c6d; --nostr: #c4b5fd; --nostr-soft: #2e2550;
+        --shadow: none;
         color-scheme: dark;
       }
     }
+    * { box-sizing: border-box; }
     body { margin: 0; background: var(--ground); color: var(--fg); font: 14.2px/1.5 "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif; padding-inline: 16px; }
-    main { max-width: 760px; margin: 0 auto; padding-block: 28px 56px; display: grid; gap: 16px; }
-    header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    header h1 { display: flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 700; letter-spacing: -.01em; margin: 0; flex: 1; }
-    header h1::before { content: "⚡"; display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--zap); color: var(--zap-fg); font-size: 20px; }
-    header .lead { flex-basis: 100%; }
-    p.lead, .muted { color: var(--muted); }
-    p.lead { margin: 0; max-width: 62ch; }
+    main { max-width: 720px; margin: 0 auto; padding-block: 24px 72px; }
+
+    /* Header and tabs. */
+    header { display: flex; align-items: center; gap: 12px; padding: 0 0 14px; }
+    header .logo { width: 40px; height: 40px; border-radius: 11px; flex: none; }
+    header .titles { flex: 1; min-width: 0; }
+    header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-height: 1.2; }
+    header .version { font-size: 12px; color: var(--muted); }
+    .lead { color: var(--muted); margin: 0 0 16px; max-width: 64ch; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--zap-soft); color: var(--fg); border-radius: 6px; padding: 1px 6px; }
-    section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
-    h2 { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
+    .tabs button { flex: 1; height: 42px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; }
+    .tabs button[aria-selected="true"] { color: var(--zap-strong); border-bottom-color: var(--zap); }
+    .tabs button:hover:not([aria-selected="true"]) { color: var(--fg); background: var(--tint); }
+    [role="tabpanel"] { display: grid; gap: 14px; }
+    [role="tabpanel"][hidden] { display: none; }
+
+    section { background: var(--card); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); }
+    h2 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
     h2 + p { margin: 0 0 12px; font-size: 13px; }
-    h3 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
-    input { font: inherit; height: 40px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); min-width: 0; }
-    input:focus { outline: none; border-color: var(--zap); box-shadow: 0 0 0 3px var(--zap-soft); }
-    button { font: inherit; font-weight: 550; height: 36px; border-radius: 999px; padding: 0 16px; border: 1.5px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
+    h3 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
+    .muted { color: var(--muted); }
+
+    /* Controls. */
+    input { font: inherit; height: 40px; padding: 0 12px; border: 1.5px solid transparent; border-radius: 10px; background: var(--field); color: var(--fg); min-width: 0; }
+    input::placeholder { color: var(--muted); }
+    input:focus { outline: none; border-color: var(--zap); background: var(--card); }
+    button { font: inherit; font-weight: 600; height: 36px; border-radius: 999px; padding: 0 16px; border: 1.5px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
     button:hover:not(:disabled) { border-color: var(--zap); color: var(--zap-strong); }
     button:disabled { opacity: .45; cursor: default; }
     button.primary { background: var(--zap); border-color: var(--zap); color: var(--zap-fg); }
     button.primary:hover:not(:disabled) { background: var(--zap-strong); border-color: var(--zap-strong); color: var(--zap-fg); }
     button.small { height: 30px; padding: 0 12px; font-size: 13px; }
-    button:focus-visible { outline: 2px solid var(--zap); outline-offset: 2px; }
+    button.icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: 0; color: var(--muted); }
+    button.icon:hover:not(:disabled) { background: var(--tint); color: var(--bad); }
+    button:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--zap); outline-offset: 2px; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
-    .search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
     @media (max-width: 600px) { .grid2 { grid-template-columns: 1fr; } }
     label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
     label.field input { color: var(--fg); }
-    #status { min-height: 1.5em; margin: 0; font-weight: 550; color: var(--ok); }
+    label.check { display: flex; gap: 10px; align-items: center; margin: 12px 0 0; font-size: 13.5px; cursor: pointer; }
+    label.check input { width: 18px; height: 18px; accent-color: var(--zap); margin: 0; }
+    details { margin-top: 14px; }
+    summary { cursor: pointer; color: var(--zap-strong); font-weight: 600; font-size: 13.5px; }
+    details[open] summary { margin-bottom: 10px; }
+
+    /* Search. */
+    .search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .searchbox { position: relative; }
+    .searchbox svg { position: absolute; left: 12px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+    .searchbox input { width: 100%; padding-left: 38px; padding-right: 36px; }
+    .searchbox button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; padding: 0; border: 0; color: var(--muted); font-size: 18px; }
+    .searchbox button[hidden] { display: none; }
     #search-status { margin: 10px 0 0; font-size: 13px; }
     #search-status:empty { display: none; }
-
-    /* People: saved contacts and search results share one row shape. */
-    .list, #search-results { display: grid; gap: 8px; }
     #search-results { margin-top: 10px; }
     #search-results:empty { display: none; }
+
+    /* People: saved contacts and search results share one card shape. */
+    .list, #search-results { display: grid; gap: 8px; }
     .contact, .profile, .skeleton { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); }
+    .contact:hover, .profile:hover { border-color: color-mix(in srgb, var(--zap) 45%, var(--line)); }
     .who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
     .who .line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
-    .avatar { width: 40px; height: 40px; border-radius: 50%; position: relative; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 16px; color: #fff; text-transform: uppercase; }
+    .avatar { width: 44px; height: 44px; border-radius: 50%; position: relative; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 17px; color: #fff; text-transform: uppercase; flex: none; }
     .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); }
     .hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
     .hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
-    .chip { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 550; justify-self: start; }
+    .chip { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; justify-self: start; }
     .verified { color: var(--ok); }
     .chip.verified { background: var(--ok-soft); }
     .chip.unverified { background: var(--line); color: var(--muted); }
     .chip.follows { background: var(--zap-soft); color: var(--zap-strong); }
-    .ln { color: var(--zap-strong); font-weight: 550; }
+    .chip.nostr { background: var(--nostr-soft); color: var(--nostr); }
+    .ln { color: var(--zap-strong); font-weight: 600; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
     .profile .save { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .profile .save input { width: 13em; max-width: 100%; height: 36px; }
     @media (max-width: 600px) { .profile { grid-template-columns: auto 1fr; } .profile .save { grid-column: 1 / -1; justify-content: flex-start; } }
-    .empty { margin: 0; padding: 12px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13px; }
+    .empty { margin: 0; padding: 18px 14px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13px; text-align: center; }
     .skeleton { grid-template-columns: auto 1fr; animation: pulse 1.2s ease-in-out infinite; }
     .skeleton-dot { background: var(--tint); }
     .skeleton-lines { display: grid; gap: 6px; }
     .skeleton-lines span { height: 10px; border-radius: 5px; background: var(--tint); }
     .skeleton-lines span:first-child { width: 50%; } .skeleton-lines span:last-child { width: 75%; }
     @keyframes pulse { 50% { opacity: .55; } }
-    @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
-    .error, #status.error { color: var(--bad); }
-    label.check { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; font-size: 13.5px; }
-    label.check input { width: 16px; height: 16px; accent-color: var(--zap); }
+    .count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--tint); border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+    #reaction-status { font-size: 13px; margin: 0 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--tint); }
+    #reaction-status:empty { display: none; }
+
+    /* Snackbar, as WhatsApp shows them. */
+    #status { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 20px); max-width: min(560px, calc(100vw - 32px));
+      padding: 12px 18px; border-radius: 10px; background: #233138; color: #e9edef; font-size: 14px; font-weight: 500;
+      box-shadow: 0 6px 20px rgba(11, 20, 26, .3); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; }
+    #status.show { opacity: 1; transform: translate(-50%, 0); }
+    #status.error { background: #b3002e; color: #fff; }
+    @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } #status { transition: none; } }
     .popup-only { display: none; }
 
     /* Toolbar popup: the same page, compact. Chrome caps popups at 800×600. */
-    body.popup { width: 400px; padding-inline: 0; }
-    body.popup main { padding: 0 0 12px; gap: 0; }
-    body.popup header { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
-    body.popup header h1 { font-size: 16px; gap: 10px; }
-    body.popup header h1::before { width: 28px; height: 28px; font-size: 15px; border-radius: 8px; }
-    body.popup header .lead { display: none; }
-    body.popup section { border-radius: 0; border-width: 0 0 1px; padding: 14px 16px; }
+    body.popup { width: 400px; padding-inline: 0; background: var(--card); }
+    body.popup main { padding: 0 0 12px; }
+    body.popup header { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: var(--card); margin: 0; }
+    body.popup header .logo { width: 32px; height: 32px; border-radius: 9px; }
+    body.popup header h1 { font-size: 16px; }
+    body.popup .lead { display: none; }
+    body.popup .tabs { position: sticky; top: 56px; z-index: 2; background: var(--card); margin: 0; padding: 0 8px; }
+    body.popup [role="tabpanel"] { gap: 0; }
+    body.popup section { border-radius: 0; box-shadow: none; padding: 14px 16px; border-bottom: 1px solid var(--line); }
     body.popup h2 { font-size: 14px; }
     body.popup .grid2 { grid-template-columns: 1fr; }
     body.popup .profile { grid-template-columns: auto 1fr; }
@@ -103,86 +141,107 @@
     body.popup #backup { display: none; }
     body.popup .popup-only { display: block; }
     body.popup button.popup-only { display: inline-flex; align-items: center; }
-    body.popup #status { padding: 8px 16px 0; }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>WhatsApp Zaps</h1>
-      <button type="button" id="open-full" class="popup-only">Full page</button>
-      <p class="lead">Type <code>/zap 1000</code> in a private chat, reply to a message with <code>/zap 1000</code> in a group, or react with ⚡,
-        to send sats through your Nostr WoT wallet. Everything here stays in this browser.</p>
+      <img class="logo" src="icons/icon-48.png" alt="">
+      <div class="titles">
+        <h1>WhatsApp Zaps</h1>
+        <span class="version" id="version"></span>
+      </div>
+      <button type="button" id="open-full" class="popup-only small">Full page</button>
     </header>
+    <p class="lead">Type <code>/zap 1000</code> in a private chat, reply to a message with <code>/zap 1000</code> in a group,
+      react with ⚡ or use the ⚡ button beside a message, to send sats through your Nostr WoT wallet. Everything here stays in this browser.</p>
 
-    <section>
-      <h2>Find on Nostr</h2>
-      <p class="muted">Search by name, npub or NIP-05 and save the Lightning Address from their profile. Searches go to public Nostr relays.</p>
-      <form class="search" id="search">
-        <input id="search-query" name="query" type="search" placeholder="Name, npub1… or name@domain" required maxlength="500" aria-label="Search Nostr" autocomplete="off">
-        <button type="submit" class="primary">Search</button>
-      </form>
-      <p id="search-status" class="muted" aria-live="polite"></p>
-      <div id="search-results"></div>
-    </section>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="tab-people" aria-controls="panel-people" aria-selected="true">People</button>
+      <button type="button" role="tab" id="tab-groups" aria-controls="panel-groups" aria-selected="false">Groups</button>
+      <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false">Settings</button>
+    </nav>
 
-    <section>
-      <h2>Every chat</h2>
-      <p class="muted">Used in any chat, unless a chat has its own entry below.</p>
-      <div id="global"></div>
-      <h3>Add by hand</h3>
-      <form class="grid2" id="add-global">
-        <input name="name" placeholder="Name as shown in WhatsApp" required aria-label="Contact name">
-        <input name="address" placeholder="name@wallet.com" required aria-label="Lightning Address">
-        <button type="submit" class="primary">Add</button>
-      </form>
-    </section>
+    <div role="tabpanel" id="panel-people" aria-labelledby="tab-people">
+      <section>
+        <h2>Find on Nostr</h2>
+        <p class="muted">Search by name, npub or NIP-05 and save the Lightning Address from their profile. Searches go to public Nostr relays.</p>
+        <form class="search" id="search">
+          <div class="searchbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <input id="search-query" name="query" type="search" placeholder="Name, npub1… or name@domain" required maxlength="500" aria-label="Search Nostr" autocomplete="off">
+            <button type="button" id="search-clear" aria-label="Clear" hidden>×</button>
+          </div>
+          <button type="submit" class="primary">Search</button>
+        </form>
+        <p id="search-status" class="muted" aria-live="polite"></p>
+        <div id="search-results"></div>
+      </section>
 
-    <section>
-      <h2>Single chats</h2>
-      <p class="muted">Saved from a chat with “Remember for this chat”. These win over the list above in that chat.</p>
-      <div id="groups"></div>
-    </section>
+      <section>
+        <h2>Saved contacts <span class="count" id="global-count"></span></h2>
+        <p class="muted">Used in any chat, unless a group has its own entry.</p>
+        <div id="global"></div>
+        <details>
+          <summary>Add a Lightning Address by hand</summary>
+          <form class="grid2" id="add-global">
+            <input name="name" placeholder="Name as shown in WhatsApp" required aria-label="Contact name">
+            <input name="address" placeholder="name@wallet.com" required aria-label="Lightning Address">
+            <button type="submit" class="primary">Add</button>
+          </form>
+        </details>
+      </section>
+    </div>
 
-    <section>
-      <h2>Settings</h2>
-      <p class="muted">Optional. Your npub only reads your public follow list, to show people you follow first. Nothing is signed or published.</p>
-      <form class="grid2" id="settings">
-        <label class="field">Your npub
-          <input id="my-npub" placeholder="npub1…" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="field">Sats per ⚡ reaction
-          <input id="reaction-amount" type="number" min="1" max="1000000" step="1" inputmode="numeric">
-        </label>
-        <button type="submit" class="primary" style="align-self: end">Save</button>
-      </form>
-      <label class="check" style="margin-top: 12px"><input type="checkbox" id="zap-button"> Show a ⚡ button beside messages on hover, to zap their author</label>
-    </section>
+    <div role="tabpanel" id="panel-groups" aria-labelledby="tab-groups" hidden>
+      <section>
+        <h2>Single chats and groups</h2>
+        <p class="muted">Saved from a chat with “Remember for this chat”. In that chat they win over your saved contacts.</p>
+        <div id="groups"></div>
+      </section>
+    </div>
 
-    <section id="backup">
-      <h2>Backup</h2>
-      <p class="muted">Move your contacts to another browser as a JSON file.</p>
-      <div class="toolbar">
-        <button type="button" id="export">Export JSON</button>
-        <label><button type="button" id="import-button">Import JSON</button>
-          <input type="file" id="import" accept="application/json,.json" hidden></label>
-      </div>
-    </section>
+    <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+      <section>
+        <h2>Zapping</h2>
+        <p class="muted">Your npub is optional: it only reads your public follow list, to show people you follow first. Nothing is signed or published.</p>
+        <form class="grid2" id="settings">
+          <label class="field">Your npub
+            <input id="my-npub" placeholder="npub1…" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">Sats per ⚡ reaction or button
+            <input id="reaction-amount" type="number" min="1" max="1000000" step="1" inputmode="numeric">
+          </label>
+          <button type="submit" class="primary">Save</button>
+        </form>
+        <label class="check"><input type="checkbox" id="zap-button"> Show a ⚡ button beside messages on hover, to zap their author</label>
+      </section>
 
-    <section id="troubleshooting">
-      <h2>Troubleshooting</h2>
-      <p class="muted">If a mention or the message box does not work as it should, copy the diagnostics and send them to the developer.
-        They contain the markup of WhatsApp's message box and mention list, including the names shown there. They stay in this browser until you copy them.</p>
-      <p class="muted" id="reaction-status"></p>
-      <label class="check"><input type="checkbox" id="trace-reactions"> Record reaction clicks for 10 minutes, then react with ⚡ once</label>
-      <div class="toolbar">
-        <button type="button" id="copy-diagnostics">Copy diagnostics</button>
-        <button type="button" id="clear-diagnostics">Clear</button>
-        <span id="diagnostics-count" class="muted"></span>
-      </div>
-    </section>
-    <p id="status" role="status"></p>
+      <section id="backup">
+        <h2>Backup</h2>
+        <p class="muted">Move your contacts to another browser as a JSON file.</p>
+        <div class="toolbar">
+          <button type="button" id="export">Export JSON</button>
+          <label><button type="button" id="import-button">Import JSON</button>
+            <input type="file" id="import" accept="application/json,.json" hidden></label>
+        </div>
+      </section>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <p class="muted">If something does not work in WhatsApp, copy the diagnostics and send them to the developer.
+          They contain the markup of WhatsApp's message box and mention list, including the names shown there. They stay in this browser until you copy them.</p>
+        <p id="reaction-status"></p>
+        <label class="check"><input type="checkbox" id="trace-reactions"> Record reaction clicks for 10 minutes, then react with ⚡ once</label>
+        <div class="toolbar" style="margin-top: 12px">
+          <button type="button" id="copy-diagnostics">Copy diagnostics</button>
+          <button type="button" id="clear-diagnostics">Clear</button>
+          <span id="diagnostics-count" class="muted"></span>
+        </div>
+      </section>
+    </div>
   </main>
+  <div id="status" role="status" aria-live="polite"></div>
   <script type="module" src="./options.ts"></script>
 </body>
 </html>

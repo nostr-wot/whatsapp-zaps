@@ -131,19 +131,23 @@ describe('installReactionHook', () => {
 
   it('waits for an open chat, then for the module, and says so when it gives up', async () => {
     const posted: Array<{ ok?: boolean; detail?: string }> = [];
+    const wait = () => new Promise(r => setTimeout(r, 20));
     document.getElementById('main')!.id = 'not-main';
     const win = window as unknown as Window & { require?: (n: string) => unknown };
     win.require = () => { throw new Error('Requiring unknown module "WAWebAddonReactionTableMode"'); };
-    const started = Date.now();
-    installReactionHook(win, m => posted.push(m as { ok?: boolean; detail?: string }), { intervalMs: 5, giveUpMs: 40, now: () => Date.now() });
-    await new Promise(r => setTimeout(r, 15));
+    let clock = 0;
+    const stop = installReactionHook(win, m => posted.push(m as { ok?: boolean; detail?: string }), { intervalMs: 5, giveUpMs: 100, now: () => clock });
+    await wait();
     assert.equal(posted.length, 0, 'nothing until a chat is open');
     document.getElementById('not-main')!.id = 'main';
-    await new Promise(r => setTimeout(r, 80));
+    await wait();
+    assert.equal(posted.length, 0, 'still trying');
+    clock = 200;
+    await wait();
     assert.equal(posted.length, 1);
     assert.equal(posted[0].ok, false);
     assert.match(posted[0].detail!, /Requiring unknown module/);
-    assert.ok(Date.now() - started < 1000);
+    stop();
   });
 });
 
