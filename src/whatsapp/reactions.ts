@@ -17,7 +17,7 @@
  * typing (in the footer), existing badges and text inside messages, and this
  * extension's own dialog.
  */
-import { messageRowOf } from './dom.ts';
+import { messageAreaOf, messageRowOf } from './dom.ts';
 
 const LIGHTNING = /^⚡️?$/;
 const LIGHTNING_NAMES = /^(high[ -]?voltage|voltage|lightning|zap|alto voltaje|alta tensi[oó]n|rayo)$/i;
@@ -57,7 +57,8 @@ export function isLightningEmoji(el: Element | null): boolean {
  */
 export function lightningBadges(row: Element): number {
   let count = 0;
-  for (const el of Array.from(row.querySelectorAll('*'))) {
+  // Badges may be drawn next to the bubble, in the same chat row.
+  for (const el of Array.from(messageAreaOf(row).querySelectorAll('*'))) {
     if (el.children.length || el.closest('[data-pre-plain-text]')) continue;
     if (isLightningEmoji(el)) count++;
   }
@@ -83,7 +84,7 @@ function rowsWithNewBadges(records: MutationRecord[], before?: Map<Element, numb
     if (before) return before.has(row) && lightningBadges(row) > (before.get(row) ?? 0);
     return records.some(r => Array.from(r.addedNodes).some(n => {
       const el = n.nodeType === 1 ? n as Element : n.parentElement;
-      return !!el && row.contains(el) && !el.closest('[data-pre-plain-text]')
+      return !!el && messageAreaOf(row).contains(el) && !el.closest('[data-pre-plain-text]')
         && (isLightningEmoji(el) || Array.from(el.querySelectorAll('*')).some(c => !c.children.length && isLightningEmoji(c)));
     }));
   });

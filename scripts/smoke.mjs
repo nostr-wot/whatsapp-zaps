@@ -574,7 +574,8 @@ try {
         const badge = document.createElement('span');
         badge.className = 'reaction-badge';
         badge.innerHTML = '<img alt="⚡" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
-        document.querySelectorAll('#main [data-id]')[0].append(badge);
+        // Drawn next to the bubble, in the same chat row.
+        document.querySelectorAll('#main [data-id]')[0].parentElement.append(badge);
       });
       document.body.append(picker);
     });
@@ -617,7 +618,7 @@ try {
       picker.remove();
       const badge = document.createElement('span');
       badge.innerHTML = '<img alt="⚡" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
-      rows[0].append(badge);
+      rows[0].parentElement.append(badge);
     });
     document.body.append(picker);
   });

@@ -149,6 +149,21 @@ describe('installReactionWatcher', () => {
     assert.equal(missed.length, 2);
   });
 
+  it('counts a badge drawn next to the message, in the same chat row (the reported layout)', async () => {
+    const beside = (row: HTMLElement) => { const b = document.createElement('div'); b.innerHTML = '<span><img alt="⚡" src="data:,"></span>'; row.parentElement!.append(b); };
+    press(picker().img, 'click');
+    beside(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0]], 'after a recognised ⚡ press');
+    const sprite = document.createElement('div');
+    sprite.innerHTML = '<span style="background-position:0 0"></span>';
+    document.body.append(sprite);
+    press(sprite.firstElementChild!);
+    beside(rows()[0]);
+    await wait();
+    assert.deepEqual(reacted, [rows()[0], rows()[0]], 'after an unrecognised press, by the new badge');
+  });
+
   it('ignores other reactions', async () => {
     press(rows()[0]);
     press(picker().thumbs, 'click');

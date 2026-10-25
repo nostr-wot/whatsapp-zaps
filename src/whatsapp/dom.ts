@@ -569,10 +569,28 @@ export interface MessageAuthor {
 }
 
 /** The message row an event happened in, if any. */
+const MESSAGE_ID = /^(true|false)_/;
+
+/**
+ * The message an element belongs to: the element with the message's data-id
+ * around it, or — for things WhatsApp draws next to the bubble rather than
+ * inside it (reaction badges, the reaction and reply buttons) — the one in the
+ * same chat row (`role="row"`).
+ */
 export function messageRowOf(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Element)) return null;
-  const row = target.closest('[data-id]') as HTMLElement | null;
-  return row && /^(true|false)_/.test(row.getAttribute('data-id') ?? '') ? row : null;
+  const own = target.closest('[data-id]') as HTMLElement | null;
+  if (own && MESSAGE_ID.test(own.getAttribute('data-id') ?? '')) return own;
+  const chatRow = target.closest('[role="row"]');
+  if (!chatRow) return null;
+  const inside = [...chatRow.querySelectorAll<HTMLElement>('[data-id]')].filter(el => MESSAGE_ID.test(el.getAttribute('data-id') ?? ''));
+  return inside.length === 1 ? inside[0] : null;
+}
+
+/** Everything WhatsApp draws for one message: its chat row when there is one, else the message itself. */
+export function messageAreaOf(row: Element): Element {
+  const chatRow = row.closest('[role="row"]');
+  return chatRow && chatRow.querySelectorAll('[data-id]').length === 1 ? chatRow : row;
 }
 
 /**

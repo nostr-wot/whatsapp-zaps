@@ -140,3 +140,14 @@ describe('findReplyTarget — short messages', () => {
     assert.equal(findReplyTarget(null)?.row, rows()[0]);
   });
 });
+
+describe('messageRowOf — next to the bubble', () => {
+  beforeEach(() => { installDom(FIXTURE); });
+  it('maps something in the same chat row to its message', async () => {
+    const { messageRowOf } = await import('../src/whatsapp/dom.ts');
+    const button = document.createElement('span');
+    rows()[0].parentElement!.append(button);
+    assert.equal(messageRowOf(button), rows()[0]);
+    assert.equal(messageRowOf(document.body), null);
+  });
+});
