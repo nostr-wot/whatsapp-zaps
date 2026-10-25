@@ -67,6 +67,26 @@ describe('runZap', () => {
     ]);
   });
 
+  it('zaps the other person in a one-to-one chat when no one is mentioned', async () => {
+    const { deps, log } = setup({ store: saveMapping(emptyStore(), { kind: 'global' }, 'id:54911@c.us', 'Ana', 'ana@w.example') });
+    const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' } };
+    assert.equal(await runZap('/zap 21 thanks', [], chat, deps), 'paid');
+    assert.ok(log.includes('confirm:ana@w.example:21:thanks'));
+  });
+
+  it('asks for a mention when no one is named in a group', async () => {
+    const { deps, log } = setup({ store: known });
+    assert.equal(await runZap('/zap 21', [], CHAT, deps), 'invalid');
+    assert.match(log[0], /^error:In a group, say who to zap/);
+  });
+
+  it('a mention still wins in a one-to-one chat', async () => {
+    const { deps, log } = setup({ store: known });
+    const chat = { chatKey: 'jid:54911@c.us', chatTitle: 'Ana', contact: { label: 'Ana', id: '54911@c.us' } };
+    await runZap('/zap @Alice 5', [], chat, deps);
+    assert.ok(log.includes('confirm:alice@w.example:5:'));
+  });
+
   it('shows usage for an invalid command and does nothing else', async () => {
     const { deps, log } = setup();
     assert.equal(await runZap('/zap @Alice', [], CHAT, deps), 'invalid');
@@ -107,7 +127,7 @@ describe('runZap', () => {
       resolve: async a => { if (a.startsWith('bad')) throw new Error('LNURL: endpoint returned 404'); return info(a); },
     });
     assert.equal(await runZap('/zap @Bob 21', [], CHAT, deps), 'paid');
-    assert.ok(log.includes('ask:Bob:Friends:bad@w.example: LNURL: endpoint returned 404'));
+    assert.ok(log.some(l => l.startsWith('ask:Bob:Friends:bad@w.example is not a Lightning Address')));
     assert.deepEqual(saved, ['global|name:bob|Bob|good@w.example']);
   });
 
@@ -117,7 +137,7 @@ describe('runZap', () => {
       resolve: async () => { throw new Error('LNURL: could not reach the endpoint'); },
     });
     assert.equal(await runZap('/zap @Alice 21', [], CHAT, deps), 'cancelled');
-    assert.ok(log.some(l => l.startsWith('ask:Alice:Friends:alice@w.example')));
+    assert.ok(log.some(l => l.startsWith('ask:Alice:Friends:w.example did not answer')));
   });
 
   it('lets the user pick between contacts with the same name', async () => {

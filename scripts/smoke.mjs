@@ -120,6 +120,11 @@ try {
   page.on('pageerror', err => { throw err; });
   await page.goto('https://web.whatsapp.com/');
 
+  // SMOKE_SHOTS=<dir> saves a screenshot at each dialog step, for design review.
+  const shotDir = process.env.SMOKE_SHOTS;
+  const shot = async name => { if (shotDir) await page.screenshot({ path: join(shotDir, `${name}.png`) }); };
+  await page.setViewportSize({ width: 1100, height: 760 });
+
   const cdp = await context.newCDPSession(page);
   async function dialogText() {
     const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
@@ -167,12 +172,14 @@ try {
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   console.log('ask:', await waitForDialog(/Lightning Address\?/));
+  await shot('1-ask');
 
   // 2. Unknown recipient: search Nostr by name; Enter on a non-address searches.
   await page.keyboard.type('Ana');
   await page.keyboard.press('Enter');
   const found = await waitForDialog(/ana@evil\.example/);
   console.log('search:', found);
+  await shot('2-search');
   assert.match(found, /✓ ana@nostr\.example .*ana@wallet\.example .*ana@nostr\.example \(not verified\)/s, 'verified profile first, impostor marked');
   assert.ok(relayRequests.some(r => r.filter.search === 'Ana' && SEARCH_RELAYS.some(u => new URL(u).host === r.host)));
   await clickInDialog(/✓ ana@nostr\.example/);
@@ -180,6 +187,7 @@ try {
   await page.keyboard.press('Enter');
   const confirm = await waitForDialog(/Confirm zap/);
   console.log('confirm:', confirm);
+  await shot('3-confirm');
   assert.match(confirm, /Ana Paula/);
   assert.match(confirm, /1,000 sats/);
   assert.match(confirm, /gracias/);
@@ -188,6 +196,7 @@ try {
   await page.keyboard.press('Enter');
   const result = await waitForDialog(/Zap sent/);
   console.log('result:', result);
+  await shot('4-result');
   const calls = await page.evaluate(() => window.__weblnCalls);
   assert.deepEqual(calls, ['enable', `pay:${invoiceFor(1000)}`]);
   assert.ok(requests.includes('wallet.example/cb/ana?amount=1000000&comment=gracias'), requests.join('\n'));
@@ -257,6 +266,37 @@ try {
     { ...linkedStore.zapMappings.global['id:5491100000000@c.us'], updatedAt: 0 },
     { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example' } },
   );
+  await shot('5-linked');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await shot('6-linked-dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  // 9. Private chat: `/zap 21` with no mention pays the linked contact; the command shows purple.
+  await clickInDialog(/^Close$/);
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
+  await page.evaluate(() => {
+    const box = document.querySelector('footer [contenteditable="true"]');
+    box.innerHTML = '<p><span>/zap 21 thanks</span></p>';
+    box.focus();
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForSelector('[data-whatsapp-zaps-command]');
+  const color = await page.$eval('footer [contenteditable="true"] span', el => getComputedStyle(el).color);
+  assert.equal(color, 'rgb(124, 58, 237)', 'command shows in zap purple');
+  await shot('7-purple-command');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  const privateConfirm = await waitForDialog(/Confirm zap/);
+  console.log('private:', privateConfirm);
+  assert.match(privateConfirm, /21 sats .*to Friends & Family.*ana@wallet\.example.*thanks/s);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
+
+  // Back to the popup to unlink.
+  await page.click('#main header [aria-label="Menu"]');
+  await page.waitForSelector('[data-whatsapp-zaps-item]');
+  await page.click('[data-whatsapp-zaps-item]');
+  await waitForDialog(/Unlink/);
   await clickInDialog(/^Unlink$/);
   await waitForDialog(/Unlinked\./);
   const unlinked = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
@@ -264,6 +304,20 @@ try {
   await clickInDialog(/^Close$/);
   await new Promise(r => setTimeout(r, 200));
   assert.equal(await dialogText(), null);
+
+  // 10. Toolbar popup: compact contacts page with search, no backup (file dialogs close popups).
+  const toolbar = await context.newPage();
+  await toolbar.setViewportSize({ width: 400, height: 600 });
+  await toolbar.goto(`chrome-extension://${new URL(worker.url()).host}/popup.html`);
+  await toolbar.waitForSelector('#global table');
+  assert.equal(await toolbar.isVisible('#backup'), false, 'backup only on the full page');
+  assert.equal(await toolbar.isVisible('#open-full'), true);
+  assert.equal(await toolbar.isVisible('#search input[name="query"]'), true);
+  assert.equal(await toolbar.evaluate(() => document.documentElement.scrollWidth <= 400), true, 'no sideways scroll');
+  if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8-toolbar.png') });
+  const manifest = await worker.evaluate(() => chrome.runtime.getManifest());
+  assert.equal(manifest.action.default_popup, 'popup.html');
+  assert.equal(manifest.icons['128'], 'icons/icon-128.png');
 
   console.log('\nSmoke test passed.');
 } finally {

@@ -12,6 +12,7 @@ import {
 } from './domain/mappings.ts';
 import type { ChatContact } from './whatsapp/dom.ts';
 import type { RecipientInfo } from './domain/messages.ts';
+import { explainLookupError } from './domain/errors.ts';
 
 export interface LinkedMember {
   contactKey: string;
@@ -100,7 +101,7 @@ export async function runLinkPopup(contact: ChatContact, deps: LinkDeps): Promis
         await deps.saveMapping(scope, key, displayName, info.address, answer.pubkey, answer.pubkey ? answer.nostr : undefined);
         notice = { text: `Linked ${displayName} → ${info.address}.` };
       } catch (err) {
-        notice = { text: `${answer.address}: ${err instanceof Error ? err.message : String(err)}`, error: true };
+        notice = { text: explainLookupError(answer.address, err), error: true };
       }
     }
   } finally {

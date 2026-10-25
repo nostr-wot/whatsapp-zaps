@@ -5,6 +5,7 @@
  *   /zap @Alice 1000
  *   /zap @Alice Smith 21k thanks for lunch
  *   /zap 1,000 @Alice
+ *   /zap 1000 thanks          (no mention: the other person in a one-to-one chat)
  *
  * The recipient comes from a WhatsApp mention when the user picked one from
  * the mention list (it carries the contact id), and from plain `@name` text
@@ -20,7 +21,8 @@ export interface Mention {
 }
 
 export interface ZapCommand {
-  recipient: Mention;
+  /** Null when no one was mentioned: in a one-to-one chat that means the other person. */
+  recipient: Mention | null;
   amountSats: number;
   comment: string;
 }
@@ -102,7 +104,14 @@ export function parseZapCommand(text: string, mentions: Mention[] = []): ParseRe
     rest = rest.slice(leading.length).trim();
   }
 
-  if (!rest.startsWith('@')) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+  if (!rest.startsWith('@')) {
+    // `/zap 1000 [comment]`: no one named. The caller decides who that is.
+    if (amount === null) return { ok: false, error: `Mention who to zap. ${USAGE}` };
+    const amountError = checkAmount(amount);
+    if (amountError) return { ok: false, error: amountError };
+    if (rest.length > MAX_COMMENT_LENGTH) return { ok: false, error: `The comment is longer than ${MAX_COMMENT_LENGTH} characters.` };
+    return { ok: true, command: { recipient: null, amountSats: amount, comment: rest } };
+  }
 
   const picked = takeRecipient(rest, mentions);
   if (picked) {

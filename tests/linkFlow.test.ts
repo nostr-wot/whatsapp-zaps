@@ -96,7 +96,7 @@ describe('runLinkPopup', () => {
     const t = setup([{ action: 'link', address: 'dead@x.example' }], emptyStore(), 'dead@x.example');
     await runLinkPopup(ANA, t.deps);
     assert.deepEqual(t.store().global, {});
-    assert.match(t.views[1].notice!.text, /dead@x\.example: LNURL: endpoint returned 404/);
+    assert.match(t.views[1].notice!.text, /dead@x\.example is not a Lightning Address: x\.example has no wallet/);
   });
 
   it('drops the Nostr snapshot when no pubkey came with it', async () => {

@@ -151,13 +151,37 @@ describe('ZapDialog — Nostr search', () => {
     assert.deepEqual(await answer, { address: 'someone@else.example', remember: 'chat' });
   });
 
-  it('submits a typed Lightning Address directly, without searching', async () => {
-    const t = withSearch(async () => results);
+  it('checks a typed name@domain on Nostr, and uses it as typed when it names no one', async () => {
+    const t = withSearch(async () => []);
     const answer = t.dialog.askAddress('Alice', null);
     (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'alice@wallet.example';
     t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'global' });
-    assert.deepEqual(t.queries, []);
+    assert.deepEqual(t.queries, ['alice@wallet.example']);
+  });
+
+  it('pays the profile’s Lightning Address when a NIP-05 was typed, not the NIP-05', async () => {
+    const t = withSearch(async () => [results[0]]);
+    const answer = t.dialog.askAddress('Alice', null);
+    (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'Alice@A.example';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'global', pubkey: PK });
+  });
+
+  it('does not trust an unverified NIP-05 match', async () => {
+    const t = withSearch(async () => [{ ...results[0], nip05Verified: false }]);
+    const answer = t.dialog.askAddress('Alice', null);
+    (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'alice@a.example';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'alice@a.example', remember: 'global' });
+  });
+
+  it('uses the text as typed when the lookup fails', async () => {
+    const t = withSearch(async () => { throw new Error('relays down'); });
+    const answer = t.dialog.askAddress('Alice', null);
+    (t.root().querySelector('input[type="text"]') as HTMLInputElement).value = 'alice@wallet.example';
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'alice@wallet.example', remember: 'global' });
   });
 
   it('shows search errors and empty results, and ignores stale answers', async () => {
@@ -257,8 +281,8 @@ describe('ZapDialog — link popup', () => {
     assert.equal((await answer as { nostr: { nip05: string | null } }).nostr.nip05, null);
   });
 
-  it('links a typed Lightning Address without Nostr', async () => {
-    const t = make();
+  it('links a typed Lightning Address without Nostr when it names no profile', async () => {
+    const t = make(async () => []);
     const answer = t.dialog.link({ contact, current: null, members: [] });
     const input = t.root().querySelector('#wz-query') as HTMLInputElement;
     input.value = 'ana@wallet.example';
@@ -266,7 +290,23 @@ describe('ZapDialog — link popup', () => {
     assert.equal(t.button('Link').disabled, false);
     t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     assert.deepEqual(await answer, { action: 'link', address: 'ana@wallet.example' });
-    assert.deepEqual(t.queries, []);
+  });
+
+  it('links the profile’s Lightning Address when Link is pressed on a NIP-05 search', async () => {
+    // The reported bug: search for a NIP-05, see the right profile, press Link
+    // without clicking it — the NIP-05 itself was linked and answered 404.
+    const t = make();
+    const answer = t.dialog.link({ contact, current: null, members: [] });
+    const input = t.root().querySelector('#wz-query') as HTMLInputElement;
+    input.value = 'ana@nostr.example';
+    input.dispatchEvent(new Event('input'));
+    t.button('Search Nostr').click();
+    await new Promise(r => setTimeout(r, 0));
+    assert.equal(t.root().querySelectorAll('.results button.option').length, 1);
+    t.button('Link').click();
+    assert.deepEqual(await answer, {
+      action: 'link', address: 'ana@wallet.example', pubkey: PK, nostr: { name: 'Ana P', nip05: 'ana@nostr.example' },
+    });
   });
 
   it('in a group, lists linked members and asks for the member’s name', async () => {

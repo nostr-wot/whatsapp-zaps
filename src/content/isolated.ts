@@ -15,6 +15,7 @@ import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import { readChatContact, readChatKey, readChatTitle, setComposerText } from '../whatsapp/dom.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
+import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
   const response = await chrome.runtime.sendMessage(request) as BackgroundResponse<T> | undefined;
@@ -51,7 +52,12 @@ const dialog = new ZapDialog({
 
 installInterceptor(({ text, mentions, composer }) => {
   busy = true;
-  const chat = { chatKey: readChatKey(), chatTitle: readChatTitle() };
+  const contact = readChatContact();
+  const chat = {
+    chatKey: readChatKey(),
+    chatTitle: readChatTitle(),
+    contact: contact?.kind === 'contact' ? { label: contact.name, id: contact.id } : null,
+  };
   void runZap(text, mentions, chat, {
     ui: dialog,
     loadMappings,
@@ -61,8 +67,8 @@ installInterceptor(({ text, mentions, composer }) => {
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
     invoice: (address, amountSats, comment) => ask<ResolvedInvoice>({ type: 'invoice', address, amountSats, comment }),
     pay,
-    clearComposer: () => setComposerText(composer, ''),
-    insertMessage: message => setComposerText(composer, message),
+    clearComposer: () => { setComposerText(composer, ''); updateHighlight(); },
+    insertMessage: message => { setComposerText(composer, message); updateHighlight(); },
   }).finally(() => { busy = false; });
 }, () => busy);
 
@@ -83,3 +89,5 @@ installMenuItem(() => {
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
   }).finally(() => { busy = false; });
 });
+
+installCommandHighlight();

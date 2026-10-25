@@ -40,7 +40,7 @@ function table(store: MappingStore, scope: MappingScope): HTMLElement {
     const row = body.insertRow();
     row.insertCell().textContent = mapping.displayName;
     const addressCell = row.insertCell();
-    addressCell.textContent = mapping.address;
+    addressCell.append(el('span', 'ln', mapping.address));
     if (mapping.nostr?.name || mapping.nostr?.nip05) {
       const nostr = [mapping.nostr.name, mapping.nostr.nip05 && `✓ ${mapping.nostr.nip05}`].filter(Boolean).join(' ');
       addressCell.append(el('br'), el('span', 'muted', `Nostr: ${nostr}`));
@@ -132,16 +132,19 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text 
 function profileRow(profile: ProfileResult): HTMLElement {
   const row = el('div', 'profile');
   const who = el('div', 'who');
-  who.append(el('strong', '', profile.displayName ?? profile.name ?? 'Unnamed profile'));
-  if (profile.name) who.append(el('span', 'muted', ` @${profile.name}`));
+  const title = el('div');
+  title.append(el('strong', '', profile.displayName ?? profile.name ?? 'Unnamed profile'));
+  if (profile.name) title.append(el('span', 'muted', ` @${profile.name}`));
+  who.append(title);
   if (profile.nip05) {
-    who.append(el('br'), el('span', profile.nip05Verified ? 'verified' : 'muted',
-      profile.nip05Verified ? `✓ ${profile.nip05}` : `${profile.nip05} (not verified)`));
+    who.append(profile.nip05Verified
+      ? el('span', 'chip verified', `✓ ${profile.nip05}`)
+      : el('span', 'chip unverified', `${profile.nip05} (not verified)`));
   }
   const npub = el('span', 'muted mono', shortNpub(profile.npub));
   npub.title = profile.npub;
-  who.append(el('br'), npub, el('br'),
-    profile.lud16 ? el('span', '', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
+  who.append(npub,
+    profile.lud16 ? el('span', 'ln', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
   row.append(who);
 
   if (profile.lud16) {
@@ -191,6 +194,9 @@ $('search').addEventListener('submit', async event => {
     : 'No Nostr profiles found.';
   $('search-results').replaceChildren(...response.value.map(profileRow));
 });
+
+// In the toolbar popup, backup (which needs file dialogs that close popups) lives on the full page.
+document.getElementById('open-full')?.addEventListener('click', () => { void chrome.runtime.openOptionsPage(); window.close(); });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && MAPPINGS_STORAGE_KEY in changes) void render();

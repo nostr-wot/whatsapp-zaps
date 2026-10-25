@@ -5,7 +5,7 @@
 // import() there resolves against web.whatsapp.com and its CSP refuses it.
 // One file per entry also means nothing has to be web-accessible.
 import { build } from 'esbuild';
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 
 const outdir = 'dist';
 const entries = {
@@ -32,8 +32,12 @@ await build({
 
 const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
 writeFileSync(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
-writeFileSync(
-  `${outdir}/options.html`,
-  readFileSync('src/options/index.html', 'utf8').replace('<script type="module" src="./options.ts"></script>', '<script src="options.js"></script>'),
-);
+// The contacts page serves twice: as the options page, and as the toolbar
+// popup (same page, compact layout, see `body.popup` in its stylesheet).
+const optionsHtml = readFileSync('src/options/index.html', 'utf8')
+  .replace('<script type="module" src="./options.ts"></script>', '<script src="options.js"></script>');
+writeFileSync(`${outdir}/options.html`, optionsHtml);
+writeFileSync(`${outdir}/popup.html`, optionsHtml.replace('<body>', '<body class="popup">'));
+mkdirSync(`${outdir}/icons`, { recursive: true });
+for (const file of readdirSync('icons')) if (file.endsWith('.png')) copyFileSync(`icons/${file}`, `${outdir}/icons/${file}`);
 for (const notice of ['LICENSE', 'NOTICE']) copyFileSync(notice, `${outdir}/${notice}`);

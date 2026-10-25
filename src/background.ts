@@ -43,6 +43,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true;
 });
-
-// The toolbar button opens the contacts page; there is no popup.
-chrome.action.onClicked.addListener(() => { void chrome.runtime.openOptionsPage(); });

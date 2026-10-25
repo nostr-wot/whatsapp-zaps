@@ -3,10 +3,14 @@
 Send Lightning payments from a WhatsApp Web chat:
 
 ```
-/zap @Alice 1000
+/zap 1000                      ← in a private chat: pays the person you are chatting with
+/zap @Alice 1000               ← in a group: name who to pay
 /zap @Ana Paula 21k gracias por el almuerzo
 /zap 1,000 @Bob
 ```
+
+While the message box holds a `/zap` command, its text turns purple, so it is
+clearly a payment and not a message.
 
 Pressing Enter on a `/zap` command does not send it to the chat. Instead a
 dialog opens, the recipient's Lightning Address is resolved, and you confirm
@@ -63,13 +67,15 @@ Open a chat, click the **⋮** menu in its header, and choose **⚡ Nostr profil
 The search box starts with the contact's name, but nothing is searched until
 you press Search. A WhatsApp name only reaches a relay if you choose to send it.
 
-### Contacts page
+### Toolbar popup and contacts page
 
-Click the extension's toolbar button to open the **contacts page**. It has:
+Click the extension's toolbar icon for a small **popup** with your saved
+contacts and Nostr search. **Full page** opens the same list in a tab, which
+also has backup (JSON import and export); file dialogs close popups, so backup
+lives there. Both have:
 
 - the same Nostr search, where each result can be saved under a WhatsApp name,
-- the saved mappings, which you can delete,
-- JSON import and export.
+- the saved mappings, which you can delete.
 
 Everything about your contacts stays in this browser, in
 `chrome.storage.local`: which WhatsApp contact is which Nostr profile, and
@@ -90,6 +96,14 @@ Anyone can call themselves "Ana", so each search result shows:
 Profiles are only accepted with a valid signature, so a relay can't change
 someone's Lightning Address. Verified profiles are listed first.
 
+### Typing a Nostr address
+
+A NIP-05 Nostr address (`ana@some-nostr-site.com`) looks exactly like a
+Lightning Address, but it usually is not one: its server answers "not found"
+(404). So a `name@domain` you type is first checked on Nostr. If it is the
+verified NIP-05 of a profile, that profile's Lightning Address is used, and the
+popup or confirm screen shows it. Otherwise it is used as you typed it.
+
 ### Where searches go
 
 - **Names** go to the public NIP-50 search relays (`relay.nostr.band`,
@@ -109,6 +123,8 @@ safeguards as LNURL: no redirects, a timeout and a size cap.
 | `src/background.ts` | service worker | LNURL-pay (pay params, invoice) and Nostr profile search |
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
 | `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu |
+| `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in purple in the message box |
+| `src/options/` | extension page | Contacts page; also built as the toolbar popup (`popup.html`) |
 
 ### Who authorizes the payment
 
@@ -162,6 +178,7 @@ npm test             # unit + jsdom tests
 npm run typecheck
 npm run build
 npm run smoke -- /path/to/chrome   # real-browser end-to-end run against dist/
+node scripts/icons.mjs /path/to/chrome   # re-render icons/icon.svg to PNGs
 ```
 
 The smoke test runs one local HTTPS/WebSocket server that serves:

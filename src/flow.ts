@@ -9,6 +9,7 @@ import { parseZapCommand, zapMessage, type Mention } from './domain/command.ts';
 import { contactKeyFor, resolveRecipient, type Mapping, type MappingScope, type MappingStore } from './domain/mappings.ts';
 import type { RecipientInfo } from './domain/messages.ts';
 import type { PayOutcome } from './domain/bridge.ts';
+import { explainLookupError } from './domain/errors.ts';
 
 export interface Candidate {
   contactKey: string;
@@ -66,6 +67,8 @@ export interface ZapDeps {
 export interface ChatContext {
   chatKey: string | null;
   chatTitle: string | null;
+  /** The other person, in a one-to-one chat. `/zap 1000` with no mention pays them. */
+  contact?: Mention | null;
 }
 
 export type FlowResult = 'invalid' | 'cancelled' | 'error' | PayOutcome['outcome'];
@@ -104,7 +107,7 @@ async function pickAddress(
       if (scope) await deps.saveMapping(scope, contactKeyFor(recipient), recipient.label, info.address, answer?.pubkey);
       return { address: info.address, info };
     } catch (err) {
-      error = `${address}: ${errorMessage(err)}`;
+      error = explainLookupError(address, err);
       address = null;
     }
   }
@@ -121,7 +124,13 @@ export async function runZap(text: string, mentions: Mention[], chat: ChatContex
     deps.ui.close();
     return 'invalid';
   }
-  const { recipient, amountSats, comment } = parsed.command;
+  const { amountSats, comment } = parsed.command;
+  const recipient = parsed.command.recipient ?? chat.contact ?? null;
+  if (!recipient) {
+    await deps.ui.showError('In a group, say who to zap: /zap @name amount');
+    deps.ui.close();
+    return 'invalid';
+  }
 
   try {
     const picked = await pickAddress(deps, chat, recipient);

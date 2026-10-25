@@ -5,40 +5,98 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WhatsApp Web Zaps</title>
   <style>
-    :root { --bg: #fff; --fg: #111b21; --muted: #54656f; --line: #e9edef; --accent: #f7931a; --danger: #d93025; --ok: #00806a; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #111b21; --fg: #e9edef; --muted: #aebac1; --line: #3b4a54; --danger: #f28b82; --ok: #00c79c; } }
-    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
-    h1 { font-size: 22px; margin: 0 0 4px; }
-    h2 { font-size: 16px; margin: 28px 0 8px; }
+    :root {
+      --ground: #f7f5fc; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9e4f5;
+      --tint: #f5f1ff; --tint-line: #e2d9fb;
+      --zap: #7c3aed; --zap-strong: #6d28d9; --zap-fg: #ffffff; --zap-soft: #ede7fe;
+      --ok: #0a7d5a; --ok-soft: #e3f6ee; --bad: #c62828;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ground: #0b141a; --card: #1f2c34; --fg: #e9edef; --muted: #8696a0; --line: #2f3d46;
+        --tint: #261f3d; --tint-line: #3a2f5c;
+        --zap: #a78bfa; --zap-strong: #c4b5fd; --zap-fg: #1a1033; --zap-soft: #2e2550;
+        --ok: #34d399; --ok-soft: #12352b; --bad: #f28b82;
+        color-scheme: dark;
+      }
+    }
+    body { margin: 0; background: var(--ground); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-inline: 16px; }
+    main { max-width: 760px; margin: 0 auto; padding-block: 32px 56px; display: grid; gap: 20px; }
+    header h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px; }
+    header h1::before { content: "⚡"; display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--zap); color: var(--zap-fg); font-size: 20px; }
     p.lead, .muted { color: var(--muted); }
+    p.lead { margin: 0; max-width: 62ch; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--tint); color: var(--zap-strong); border-radius: 6px; padding: 1px 6px; }
+    section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+    h2 { font-size: 16px; font-weight: 650; margin: 0 0 4px; }
+    h2 + p { margin: 0 0 14px; }
+    h3 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-    th { color: var(--muted); font-weight: 500; font-size: 13px; }
-    form.add { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; margin-top: 12px; }
-    @media (max-width: 600px) { form.add { grid-template-columns: 1fr; } }
-    input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); }
-    button { font: inherit; border-radius: 16px; padding: 6px 14px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #111b21; font-weight: 600; }
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-    #status { min-height: 1.5em; margin-top: 12px; }
+    th, td { text-align: left; padding: 10px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    td:last-child { text-align: right; width: 1%; white-space: nowrap; }
+    input, select { font: inherit; height: 40px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); min-width: 0; }
+    input:focus { outline: none; border-color: var(--zap); box-shadow: 0 0 0 3px var(--zap-soft); }
+    button { font: inherit; font-weight: 550; height: 36px; border-radius: 999px; padding: 0 16px; border: 1.5px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
+    button:hover { border-color: var(--zap); color: var(--zap-strong); }
+    button.primary { background: var(--zap); border-color: var(--zap); color: var(--zap-fg); }
+    button.primary:hover { background: var(--zap-strong); border-color: var(--zap-strong); color: var(--zap-fg); }
+    button:focus-visible { outline: 2px solid var(--zap); outline-offset: 2px; }
+    form.add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 14px; }
     form.search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-    .profile { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
-    .profile .who { overflow-wrap: anywhere; }
+    @media (max-width: 600px) { form.add { grid-template-columns: 1fr; } }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    #status { min-height: 1.5em; margin: 0; font-weight: 550; color: var(--ok); }
+    #search-status { margin: 10px 0 0; }
+    #search-status:empty { display: none; }
+    #search-results { display: grid; gap: 8px; margin-top: 10px; }
+    .profile { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; }
+    .profile .who { overflow-wrap: anywhere; display: grid; gap: 2px; }
     .profile .save { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .profile .save input { width: 14em; max-width: 100%; }
+    .profile .save input { width: 14em; max-width: 100%; height: 36px; }
     @media (max-width: 600px) { .profile { grid-template-columns: 1fr; } .profile .save { justify-content: flex-start; } }
+    .chip { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 550; justify-self: start; }
     .verified { color: var(--ok); }
+    .chip.verified { background: var(--ok-soft); }
+    .chip.unverified { background: var(--line); color: var(--muted); }
+    .ln { color: var(--zap-strong); font-weight: 550; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    .error, #status.error { color: var(--danger); }
+    .error, #status.error { color: var(--bad); }
+    .popup-only { display: none; }
+
+    /* Toolbar popup: the same page, compact. Chrome caps popups at 800×600. */
+    body.popup { width: 400px; padding-inline: 0; }
+    body.popup main { padding: 0 0 12px; gap: 0; }
+    body.popup header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+    body.popup header h1 { font-size: 16px; margin: 0; gap: 10px; flex: 1; }
+    body.popup header h1::before { width: 28px; height: 28px; font-size: 15px; border-radius: 8px; }
+    body.popup header .lead { display: none; }
+    body.popup section { border-radius: 0; border-width: 0 0 1px; padding: 14px 16px; }
+    body.popup h2 { font-size: 14px; }
+    body.popup h2 + p { font-size: 12px; margin-bottom: 10px; }
+    body.popup form.add { grid-template-columns: 1fr; }
+    body.popup .profile { grid-template-columns: 1fr; }
+    body.popup .profile .save { justify-content: flex-start; }
+    body.popup .profile .save input { flex: 1; width: auto; }
+    body.popup th { display: none; }
+    body.popup #backup { display: none; }
+    body.popup .popup-only { display: block; }
+    body.popup button.popup-only { display: inline-flex; align-items: center; }
+    body.popup #status { padding: 8px 16px 0; }
   </style>
 </head>
 <body>
   <main>
-    <h1>⚡ WhatsApp Web Zaps</h1>
-    <p class="lead">Type <code>/zap @name 1000</code> in a WhatsApp Web chat to send sats through your Nostr WoT wallet.
-      These are the Lightning Addresses you have saved for contacts. Addresses you enter in a chat are saved here too.</p>
+    <header>
+    <h1>WhatsApp Zaps</h1>
+    <button type="button" id="open-full" class="popup-only">Full page</button>
+    <p class="lead">Type <code>/zap @name 1000</code> in a group, or <code>/zap 1000</code> in a private chat, to send sats through your Nostr WoT wallet.
+      These are the Lightning Addresses you have saved for contacts. Addresses you enter in a chat are saved here too.
+      Everything here stays in this browser.</p>
+    </header>
 
+    <section>
     <h2>Find on Nostr</h2>
     <p class="muted">Search by name, npub or NIP-05 address and save the Lightning Address from their profile.
       Name searches go to public Nostr search relays.</p>
@@ -48,25 +106,34 @@
     </form>
     <p id="search-status" class="muted" aria-live="polite"></p>
     <div id="search-results"></div>
+    </section>
 
+    <section>
     <h2>Every chat</h2>
+    <p class="muted">Used in any chat, unless a chat has its own entry below.</p>
     <div id="global"></div>
     <form class="add" id="add-global">
       <input name="name" placeholder="Contact name as shown in WhatsApp" required aria-label="Contact name">
       <input name="address" placeholder="name@wallet.com" required aria-label="Lightning Address">
       <button type="submit" class="primary">Add</button>
     </form>
+    </section>
 
+    <section>
     <h2>Single chats</h2>
     <p class="muted">Saved from a chat with “Remember for this chat”. These win over the list above in that chat.</p>
     <div id="groups"></div>
+    </section>
 
+    <section id="backup">
     <h2>Backup</h2>
+    <p class="muted">Move your contacts to another browser as a JSON file.</p>
     <div class="toolbar">
       <button type="button" id="export">Export JSON</button>
       <label><button type="button" id="import-button">Import JSON</button>
         <input type="file" id="import" accept="application/json,.json" hidden></label>
     </div>
+    </section>
     <p id="status" role="status"></p>
   </main>
   <script type="module" src="./options.ts"></script>

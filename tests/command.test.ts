@@ -57,7 +57,7 @@ describe('parseZapCommand', () => {
 
   it('reads multi-word typed names up to the amount', () => {
     const cmd = ok('/zap @Ana Paula 500 gracias');
-    assert.equal(cmd.recipient.label, 'Ana Paula');
+    assert.equal(cmd.recipient!.label, 'Ana Paula');
     assert.equal(cmd.amountSats, 500);
     assert.equal(cmd.comment, 'gracias');
   });
@@ -77,7 +77,7 @@ describe('parseZapCommand', () => {
 
   it('prefers the longest matching picked mention', () => {
     const cmd = ok('/zap @Ana Paula 10', [{ label: 'Ana', id: 'a@c.us' }, { label: '@Ana Paula', id: 'ap@c.us' }]);
-    assert.equal(cmd.recipient.id, 'ap@c.us');
+    assert.equal(cmd.recipient!.id, 'ap@c.us');
   });
 
   it('does not match a picked mention that is only a prefix of a word', () => {
@@ -90,9 +90,15 @@ describe('parseZapCommand', () => {
     assert.deepEqual(cmd.recipient, { label: 'Alice', id: 'x@c.us' });
   });
 
+  it('accepts no mention, for the other person in a one-to-one chat', () => {
+    assert.deepEqual(ok('/zap 1000'), { recipient: null, amountSats: 1000, comment: '' });
+    assert.deepEqual(ok('/zap 21k for lunch'), { recipient: null, amountSats: 21000, comment: 'for lunch' });
+    fails('/zap 0', /whole number/);
+    fails(`/zap 10 ${'x'.repeat(281)}`, /longer than 280/);
+  });
+
   it('explains what is missing', () => {
     fails('/zap', /Usage/);
-    fails('/zap 1000', /Mention who/);
     fails('/zap @Alice', /Add an amount/);
     fails('/zap Alice 1000', /Mention who/);
     fails('/zap @Alice lots', /Usage/);
