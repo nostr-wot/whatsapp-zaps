@@ -1,9 +1,9 @@
 {
-  "name": "whatsapp-zaps",
-  "version": "0.10.0",
+  "name": "whatzaps",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
-  "description": "Send Lightning zaps from WhatsApp Web with /zap, paid through the Nostr WoT extension's WebLN wallet.",
+  "description": "WhatZaps: send Lightning zaps from WhatsApp Web with /zap, ⚡ reactions and Nostr profiles, paid through the Nostr WoT extension.",
   "license": "GPL-3.0-only",
   "scripts": {
     "build": "node scripts/build.mjs",

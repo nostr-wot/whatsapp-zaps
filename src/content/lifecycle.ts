@@ -40,4 +40,4 @@ export function lifecycleState(doc: Document, id: string, alive: boolean): Lifec
   return owner && owner !== id ? 'replaced' : 'orphaned';
 }
 
-export const RELOAD_MESSAGE = 'WhatsApp Zaps was updated or removed. Reload this page (F5) to use /zap again. Nothing was paid.';
+export const RELOAD_MESSAGE = 'WhatZaps was updated or removed. Reload this page (F5) to use /zap again. Nothing was paid.';

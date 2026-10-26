@@ -147,3 +147,29 @@ describe('withSnapshot', () => {
     assert.equal(withSnapshot(s, { kind: 'global' }, 'name:zzz', { name: 'Z', nip05: null }), s);
   });
 });
+
+describe('editMapping', () => {
+  const PK = 'b'.repeat(64);
+  it('renames a contact known by name to its new name, keeping its Nostr link', async () => {
+    const { editMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:ana', 'Ana', 'ana@x.example', 1, PK, { name: 'Ana N', nip05: null });
+    const { store, contactKey } = editMapping(s, { kind: 'global' }, 'name:ana', 'Ana Paula', 'Ana@Y.example', 9);
+    assert.equal(contactKey, 'name:ana paula');
+    assert.deepEqual(Object.keys(store.global), ['name:ana paula']);
+    assert.deepEqual(store.global['name:ana paula'], { address: 'ana@y.example', displayName: 'Ana Paula', updatedAt: 9, pubkey: PK, nostr: { name: 'Ana N', nip05: null } });
+  });
+  it('keeps the key of a contact known by WhatsApp id', async () => {
+    const { editMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'chat', chatKey: 'jid:1@g.us' }, 'id:5@c.us', 'Bob', 'b@x.example', 1);
+    const { store, contactKey } = editMapping(s, { kind: 'chat', chatKey: 'jid:1@g.us' }, 'id:5@c.us', 'Roberto', 'b@x.example', 2);
+    assert.equal(contactKey, 'id:5@c.us');
+    assert.equal(store.groups['jid:1@g.us']['id:5@c.us'].displayName, 'Roberto');
+  });
+  it('refuses an empty name, an invalid address, or a contact that is gone', async () => {
+    const { editMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:a', 'A', 'a@x.example', 1);
+    assert.throws(() => editMapping(s, { kind: 'global' }, 'name:a', '  ', 'a@x.example'), /Type a name/);
+    assert.throws(() => editMapping(s, { kind: 'global' }, 'name:a', 'A', 'nope'), /Lightning Address/);
+    assert.throws(() => editMapping(s, { kind: 'global' }, 'name:zz', 'Z', 'a@x.example'), /no longer saved/);
+  });
+});

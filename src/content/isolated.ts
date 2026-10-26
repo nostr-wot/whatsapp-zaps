@@ -15,7 +15,7 @@ import type { MappingStore } from '../domain/mappings.ts';
 import { ZapDialog } from '../ui/dialog.ts';
 import { installInterceptor } from '../whatsapp/intercept.ts';
 import {
-  footerTextsOutsideComposer, readMessageAuthor, replyAuthor, findComposer, lastMentionAttempt, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
+  footerTextsOutsideComposer, readMessageAuthor, replyAuthor, findComposer, lastMentionAttempt, type ChatContact, readChatContact, readChatKey, readChatTitle, replaceComposerText, rewriteAroundMention,
   sendComposer, writeWithMention,
 } from '../whatsapp/dom.ts';
 import { recordDiagnostic } from '../services/diagnostics.ts';
@@ -48,6 +48,7 @@ function orphaned(): boolean {
 }
 import { POST_PREFERENCE_KEY, RECENT_ZAPS_KEY, REPEAT_WINDOW_MS } from '../constants.ts';
 import { installMenuItem } from '../whatsapp/menu.ts';
+import { installContactInfoButton } from '../whatsapp/contactInfo.ts';
 import { installReplyTracker } from '../whatsapp/replies.ts';
 import { installReactionWatcher } from '../whatsapp/reactions.ts';
 import { DEFAULT_REACTION_SATS, REACTION_AMOUNT_KEY, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY } from '../constants.ts';
@@ -298,10 +299,9 @@ function traceReaction(what: string, html: string) {
   void recordDiagnostic(`reaction trace: ${what}`, { html });
 }
 
-// "⚡ Nostr profile" in the chat header's ⋮ menu.
-uninstallers.push(installMenuItem(() => {
+/** Open the Nostr profile popup for a contact (or a group's members). */
+function openNostrProfile(contact: ChatContact | null) {
   if (orphaned()) return;
-  const contact = readChatContact();
   if (busy || !contact) return;
   busy = true;
   void runLinkPopup(contact, {
@@ -315,6 +315,20 @@ uninstallers.push(installMenuItem(() => {
     },
     resolve: address => ask<RecipientInfo>({ type: 'resolve', address }),
   }).finally(() => { busy = false; });
+}
+
+// "⚡ Nostr profile" in the chat header's ⋮ menu.
+uninstallers.push(installMenuItem(() => openNostrProfile(readChatContact()), document, current));
+
+// "⚡ Nostr" beside Voice / Video / Search in WhatsApp's contact info. In a
+// group, the panel may be a member's: their phone number there says who.
+uninstallers.push(installContactInfoButton(shownId => {
+  const chat = readChatContact();
+  if (shownId && chat?.kind === 'group') {
+    openNostrProfile({ kind: 'contact', id: shownId, name: shownId.replace(/@.*/, '').replace(/^/, '+') });
+  } else {
+    openNostrProfile(chat);
+  }
 }, document, current));
 
 uninstallers.push(installCommandHighlight());

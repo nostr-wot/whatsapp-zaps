@@ -1,6 +1,6 @@
-# WhatsApp Web Zaps
+# WhatZaps
 
-Send Lightning payments from a WhatsApp Web chat:
+**WhatZaps** sends Lightning payments ("zaps") from a WhatsApp Web chat:
 
 In a private chat no name is needed, and the help text never asks for one. Only
 a chat the extension knows is a group needs `@name`; if it cannot tell, it
@@ -181,6 +181,15 @@ When you pick someone from WhatsApp's mention list, the contact is stored by
 WhatsApp contact id. Typed names are stored by display name. If two saved
 contacts share a name, the dialog asks which one you meant.
 
+### From the contact info panel
+
+Open a contact's info in WhatsApp (their profile, with the Voice · Video ·
+Search buttons): WhatZaps adds a fourth button, **⚡ Nostr**, that opens the
+same Nostr profile popup as the ⋮ menu. The row is recognised by those
+buttons' labels (in several languages), and the new button copies WhatsApp's
+own, so it matches its look. In a group, a member's panel shows their phone
+number, and the popup is for that member.
+
 ### From a chat's ⋮ menu
 
 Open a chat, click the **⋮** menu in its header, and choose **⚡ Nostr profile**.
@@ -205,7 +214,9 @@ also has backup (JSON import and export); file dialogs close popups, so backup
 lives there. Both have:
 
 - the same Nostr search, where each result can be saved under a WhatsApp name,
-- the saved mappings, which you can delete.
+- the saved mappings, which you can edit (name and Lightning Address — for
+  when someone changes their name in WhatsApp) or delete. Editing keeps the
+  link to their Nostr profile.
 
 Everything about your contacts stays in this browser, in
 `chrome.storage.local`: which WhatsApp contact is which Nostr profile, and
@@ -241,10 +252,14 @@ filled in for you, such as the contact's name, is only searched once you edit
 it or press Search. Profiles without a Lightning Address are folded away, and
 the arrow keys move through the results.
 
-Pictures are fetched by the extension's background and shown as data, so
-WhatsApp's page cannot block them; they load when the image host allows
-cross-origin reads, as Nostr media hosts generally do (Blossom servers must),
-and the initial stays otherwise.
+On the extension's own pages (popup, contacts page) pictures load directly
+from their host. Inside WhatsApp, whose page does not allow outside images,
+the background fetches each picture: it follows redirects (but never reads
+from a private-network address), reads up to 5 MB and shrinks it to a small
+thumbnail. When a host refuses to let extensions read its pictures, WhatZaps
+loads it through **wsrv.nl**, a free public image proxy — which then sees
+those picture links. Turn that off under Settings; such pictures then show the
+person's initial.
 
 Optionally, put your own npub under Settings: people you follow then come first
 and carry a "You follow" badge. Only your public follow list is read; nothing

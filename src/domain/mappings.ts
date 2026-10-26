@@ -209,6 +209,24 @@ export function withSnapshot(store: MappingStore, scope: MappingScope, contactKe
   return saveMapping(store, scope, contactKey, current.displayName, current.address, current.updatedAt, current.pubkey, nostr);
 }
 
+/**
+ * Change a saved contact's name and Lightning Address. A contact known by its
+ * name moves to its new name's key (so the new WhatsApp name finds it); one
+ * known by its WhatsApp id keeps its key. Its Nostr link is kept.
+ * @throws when the contact is gone, the name is empty or the address invalid.
+ */
+export function editMapping(
+  store: MappingStore, scope: MappingScope, contactKey: string, name: string, address: string, now: number = Date.now(),
+): { store: MappingStore; contactKey: string } {
+  const current = findMapping(store, scope, contactKey);
+  if (!current) throw new Error('That contact is no longer saved.');
+  const displayName = name.trim();
+  if (!displayName) throw new Error('Type a name.');
+  const newKey = contactKey.startsWith('name:') ? `name:${normalizeName(displayName)}` : contactKey;
+  const without = newKey === contactKey ? store : removeMapping(store, scope, contactKey);
+  return { store: saveMapping(without, scope, newKey, displayName, address, now, current.pubkey, current.nostr), contactKey: newKey };
+}
+
 /** The mapping saved for exactly this contact key in this scope, if any. */
 export function findMapping(store: MappingStore, scope: MappingScope, contactKey: string): Mapping | null {
   const bucket = scope.kind === 'global' ? store.global : store.groups[scope.chatKey];

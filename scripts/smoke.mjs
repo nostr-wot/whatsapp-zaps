@@ -200,7 +200,7 @@ try {
   for (let i = 0; i < 30 && !pictureShown; i++) {
     const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
     pictureShown = (function find(n) {
-      if (n.nodeName === 'IMG' && /data:image\/png;base64,/.test((n.attributes ?? []).join(' '))) return true;
+      if (n.nodeName === 'IMG' && /data:image\/(png|webp);base64,/.test((n.attributes ?? []).join(' '))) return true;
       return [...(n.children ?? []), ...(n.shadowRoots ?? [])].some(find);
     })(root);
     if (!pictureShown) await new Promise(r => setTimeout(r, 100));
@@ -266,6 +266,21 @@ try {
     { address: 'ana@wallet.example', displayName: 'Ana from work', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
   );
   assert.match(await options.textContent('#global'), /Ana from work/);
+  await options.setViewportSize({ width: 900, height: 500 });
+  await options.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const pageSearchTop = await options.evaluate(() => document.getElementById('search-query').getBoundingClientRect().top);
+  assert.ok(pageSearchTop >= 0 && pageSearchTop < 120, `full page: search pinned while scrolling (top ${pageSearchTop})`);
+  // Edit a saved contact: a new name moves it to that name; the Nostr link stays.
+  await options.click('button[aria-label="Edit Ana from work"]');
+  await options.fill('form.edit input[aria-label="Name as shown in WhatsApp"]', 'Ana W');
+  await options.click('form.edit button[type="submit"]');
+  await options.waitForFunction(() => document.getElementById('status').textContent === 'Saved Ana W.');
+  const edited = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
+  assert.equal(edited.zapMappings.global['name:ana from work'], undefined);
+  assert.equal(edited.zapMappings.global['name:ana w'].pubkey, anaPubkey, 'still linked to her Nostr profile');
+  assert.match(await options.textContent('#global'), /Ana W/);
+  // Pictures on the extension's own pages load directly from their host.
+  assert.ok(await options.$('#global .avatar img[src="https://wallet.example/ana.png"]'), 'profile picture shown directly');
 
   // 8. ⋮ menu → "Nostr profile" popup in a one-to-one chat: search, link, unlink.
   await page.bringToFront();
@@ -335,6 +350,30 @@ try {
   await clickInDialog(/^Close$/);
   await new Promise(r => setTimeout(r, 200));
   assert.equal(await dialogText(), null);
+
+  // 8b. WhatsApp's contact info panel (Voice · Video · Search) gets a ⚡ Nostr button.
+  await page.evaluate(() => {
+    const host = document.createElement('section');
+    host.id = 'fake-contact-info';
+    host.style.cssText = 'position:fixed;right:0;top:0;width:340px;padding:20px;background:#fff';
+    host.innerHTML = `<div><span dir="auto">Friends &amp; Family</span><span>+54 9 11 0000-0000</span></div>
+      <div class="actions" style="display:flex;gap:16px">
+        <div class="item"><div role="button" aria-label="Voice call" style="width:60px;height:40px;border-radius:20px;background:#eee"><span data-icon="voice-call"><svg width="24" height="24"></svg></span></div><div><span>Voice</span></div></div>
+        <div class="item"><div role="button" aria-label="Video call" style="width:60px;height:40px;border-radius:20px;background:#eee"><span data-icon="video-call"><svg width="24" height="24"></svg></span></div><div><span>Video</span></div></div>
+        <div class="item"><div role="button" aria-label="Search" style="width:60px;height:40px;border-radius:20px;background:#eee"><span data-icon="search"><svg width="24" height="24"></svg></span></div><div><span>Search</span></div></div>
+      </div>`;
+    document.getElementById('app').append(host);
+  });
+  await page.waitForSelector('[data-whatsapp-zaps-ui="contact-nostr"]');
+  assert.equal(await page.textContent('[data-whatsapp-zaps-ui="contact-nostr"]'), 'Nostr');
+  if (shotDir) await page.screenshot({ path: join(shotDir, '8d-contact-info.png'), clip: { x: 740, y: 0, width: 360, height: 140 } });
+  await page.click('[data-whatsapp-zaps-ui="contact-nostr"] [role="button"]');
+  const fromPanel = await waitForDialog(/Nostr profile/);
+  console.log('contact info:', fromPanel.slice(0, 80));
+  assert.match(fromPanel, /Friends & Family/);
+  await clickInDialog(/^Close$/);
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
+  await page.evaluate(() => document.getElementById('fake-contact-info').remove());
 
   // 11. A real Lexical message box (as on WhatsApp): `/zap 21 thanks` in a private chat
   //     is paid, the ⚡ message is posted only then, and typing the command again warns.
@@ -754,6 +793,18 @@ try {
   assert.equal(await toolbar.isVisible('#search-query'), true);
   assert.match(await toolbar.textContent('#reaction-status'), /active — reading WhatsApp's own reaction data/);
   assert.equal(await toolbar.evaluate(() => document.documentElement.scrollWidth <= 400), true, 'no sideways scroll');
+  // The search stays pinned at the top while the contacts scroll under it.
+  const scrolled = await toolbar.evaluate(() => {
+    const panel = document.getElementById('panel-people');
+    panel.scrollTop = panel.scrollHeight;
+    return panel.scrollTop;
+  });
+  assert.ok(scrolled > 0, 'the People tab scrolls');
+  const searchTop = await toolbar.evaluate(() => document.getElementById('search-query').getBoundingClientRect().top);
+  assert.ok(searchTop > 0 && searchTop < 200, `search box still at the top after scrolling (top ${searchTop})`);
+  assert.equal(await toolbar.isVisible('#tab-people'), true, 'tabs stay put');
+  if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8c-toolbar-scrolled.png') });
+  await toolbar.evaluate(() => { document.getElementById('panel-people').scrollTop = 0; });
   if (shotDir) await toolbar.screenshot({ path: join(shotDir, '8-toolbar.png') });
   if (shotDir) {
     await toolbar.click('#tab-settings');

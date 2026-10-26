@@ -246,7 +246,7 @@ function previewParts(message: ChatMessage): Child[] {
 
 const SVG = 'http://www.w3.org/2000/svg';
 
-/** The WhatsApp Zaps mark (as the extension icon), drawn inline: no image request the page could block. */
+/** The WhatZaps mark (as the extension icon), drawn inline: no image request the page could block. */
 function brandMark(): SVGSVGElement {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '0 0 128 128');
@@ -329,7 +329,7 @@ export class ZapDialog implements ZapUi, LinkUi {
     this.host = h('div', { 'data-whatsapp-zaps': '' });
     const shadow = this.host.attachShadow({ mode: this.shadowMode });
     const backdrop = h('div', { class: 'backdrop' });
-    this.card = h('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Zap' });
+    this.card = h('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'WhatZaps' });
     backdrop.append(this.card);
     backdrop.addEventListener('click', e => { if (e.target === backdrop) this.onCancel?.(); });
     // Keep keystrokes away from WhatsApp's global shortcuts while the dialog is open.

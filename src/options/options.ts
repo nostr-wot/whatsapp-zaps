@@ -4,10 +4,10 @@
  */
 import {
   DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
-  REACTION_HOOK_STATUS_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
+  PICTURE_PROXY_KEY, REACTION_HOOK_STATUS_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
 } from '../constants.ts';
 import {
-  normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, withSnapshot,
+  editMapping, normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, withSnapshot,
   type Mapping, type MappingScope, type MappingStore,
 } from '../domain/mappings.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
@@ -54,16 +54,21 @@ function avatar(label: string, key: string, picture: string | null | undefined):
   return face;
 }
 
-/** Put a profile picture (fetched by the background) over an initial. */
+/**
+ * Put a profile picture over an initial. Extension pages may show outside
+ * images directly, so no fetch, size limit or CORS gets in the way here; a
+ * broken link just leaves the initial.
+ */
 function showPicture(face: HTMLElement, picture: string): void {
-  void ask<string | null>({ type: 'avatar', url: picture }).then(data => {
-    if (!data || face.querySelector('img')) return;
-    const img = el('img');
-    img.alt = '';
-    img.src = data;
-    img.addEventListener('error', () => img.remove());
-    face.append(img);
-  }, () => {});
+  if (face.querySelector('img') || !/^https:\/\//.test(picture)) return;
+  const img = el('img');
+  img.alt = '';
+  img.referrerPolicy = 'no-referrer';
+  img.decoding = 'async';
+  img.loading = 'lazy';
+  img.addEventListener('error', () => img.remove());
+  img.src = picture;
+  face.append(img);
 }
 
 function chatLabel(chatKey: string): string {
@@ -89,8 +94,47 @@ function refreshPicture(face: HTMLElement, scope: MappingScope, contactKey: stri
   }, () => {});
 }
 
+const PENCIL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m14 6 4 4"/></svg>';
+
+/** The row turned into a small form to change the name and Lightning Address. */
+function editRow(row: HTMLElement, mapping: Mapping, scope: MappingScope, contactKey: string): void {
+  const form = el('form', 'edit');
+  const name = el('input');
+  name.value = mapping.displayName;
+  name.required = true;
+  name.setAttribute('aria-label', 'Name as shown in WhatsApp');
+  const address = el('input');
+  address.value = mapping.address;
+  address.required = true;
+  address.spellcheck = false;
+  address.setAttribute('aria-label', 'Lightning Address');
+  const save = el('button', 'primary small', 'Save');
+  save.type = 'submit';
+  const cancel = el('button', 'small', 'Cancel');
+  cancel.type = 'button';
+  const buttons = el('div', 'edit-actions');
+  buttons.append(cancel, save);
+  form.append(name, address, buttons);
+  const face = row.querySelector('.avatar');
+  row.replaceChildren(...(face ? [face] : []), form);
+  row.classList.add('editing');
+  name.focus();
+  name.select();
+  cancel.addEventListener('click', () => { void render(); });
+  form.addEventListener('keydown', event => { if (event.key === 'Escape') void render(); });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      await updateMappings(s => editMapping(s, scope, contactKey, name.value, address.value).store);
+      setStatus(`Saved ${name.value.trim()}.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err), true);
+    }
+  });
+}
+
 /** One saved contact: who, their Nostr profile if linked, their Lightning Address. */
-function contactRow(mapping: Mapping, onDelete: () => void): HTMLElement {
+function contactRow(mapping: Mapping, onDelete: () => void, onEdit?: (row: HTMLElement) => void): HTMLElement {
   const row = el('div', 'contact');
   const who = el('div', 'who');
   const top = el('div', 'line');
@@ -111,7 +155,18 @@ function contactRow(mapping: Mapping, onDelete: () => void): HTMLElement {
   remove.setAttribute('aria-label', `Delete ${mapping.displayName}`);
   remove.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
   remove.addEventListener('click', onDelete);
-  row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.pubkey ?? mapping.address, mapping.nostr?.picture), who, remove);
+  const tools = el('div', 'tools');
+  if (onEdit) {
+    const edit = el('button', 'icon edit', '');
+    edit.type = 'button';
+    edit.title = `Edit ${mapping.displayName}`;
+    edit.setAttribute('aria-label', `Edit ${mapping.displayName}`);
+    edit.innerHTML = PENCIL;
+    edit.addEventListener('click', () => onEdit(row));
+    tools.append(edit);
+  }
+  tools.append(remove);
+  row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.pubkey ?? mapping.address, mapping.nostr?.picture), who, tools);
   return row;
 }
 
@@ -124,7 +179,7 @@ function contactList(store: MappingStore, scope: MappingScope): HTMLElement {
     const row = contactRow(mapping, async () => {
       await updateMappings(s => removeMapping(s, scope, contactKey));
       setStatus(`Deleted ${mapping.displayName}.`);
-    });
+    }, r => editRow(r, mapping, scope, contactKey));
     refreshPicture(row.querySelector('.avatar') as HTMLElement, scope, contactKey, mapping);
     return row;
   }));
@@ -243,6 +298,7 @@ let searchRun = 0;
 async function runSearch(query: string) {
   if (!query) return;
   const run = ++searchRun;
+  $('search-hint').hidden = true;
   showSearching();
   try {
     const found = await ask<ProfileResult[]>({ type: 'search', query });
@@ -258,9 +314,18 @@ async function runSearch(query: string) {
 
 const queryInput = $<HTMLInputElement>('search-query');
 let typing: ReturnType<typeof setTimeout> | undefined;
+/** Back to the idle state: no results, the hint shown again. */
+function resetSearch() {
+  searchRun++;
+  $('search-results').replaceChildren();
+  $('search-status').textContent = '';
+  $('search-hint').hidden = false;
+}
+
 queryInput.addEventListener('input', () => {
   clearTimeout(typing);
   const query = queryInput.value.trim();
+  if (!query) { resetSearch(); return; }
   if (query.length >= 2) typing = setTimeout(() => { void runSearch(query); }, 450);
 });
 $('search').addEventListener('submit', event => {
@@ -302,13 +367,17 @@ queryInput.addEventListener('input', () => { clearSearch.hidden = !queryInput.va
 clearSearch.addEventListener('click', () => {
   queryInput.value = '';
   clearSearch.hidden = true;
-  searchRun++;
-  $('search-results').replaceChildren();
-  $('search-status').textContent = '';
+  resetSearch();
   queryInput.focus();
 });
 
 // ── Settings ──
+
+$<HTMLInputElement>('picture-proxy').addEventListener('change', async event => {
+  const on = (event.currentTarget as HTMLInputElement).checked;
+  await chrome.storage.local.set({ [PICTURE_PROXY_KEY]: on });
+  setStatus(on ? 'Pictures blocked by their host load through wsrv.nl.' : 'Pictures load only from their own host.');
+});
 
 $<HTMLInputElement>('zap-button').addEventListener('change', async event => {
   const on = (event.currentTarget as HTMLInputElement).checked;
@@ -317,8 +386,9 @@ $<HTMLInputElement>('zap-button').addEventListener('change', async event => {
 });
 
 async function renderSettings() {
-  const stored = await chrome.storage.local.get([MY_PUBKEY_KEY, REACTION_AMOUNT_KEY, ZAP_BUTTON_KEY]);
+  const stored = await chrome.storage.local.get([MY_PUBKEY_KEY, REACTION_AMOUNT_KEY, ZAP_BUTTON_KEY, PICTURE_PROXY_KEY]);
   $<HTMLInputElement>('zap-button').checked = stored[ZAP_BUTTON_KEY] !== false;
+  $<HTMLInputElement>('picture-proxy').checked = stored[PICTURE_PROXY_KEY] !== false;
   const me = stored[MY_PUBKEY_KEY];
   $<HTMLInputElement>('my-npub').value = typeof me === 'string' && /^[0-9a-f]{64}$/.test(me) ? npubEncode(me) : '';
   const amount = stored[REACTION_AMOUNT_KEY];
@@ -357,7 +427,7 @@ $('export').addEventListener('click', async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'whatsapp-zaps-mappings.json';
+  a.download = 'whatzaps-contacts.json';
   a.click();
   URL.revokeObjectURL(url);
 });

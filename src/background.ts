@@ -10,10 +10,11 @@ import { fetchPayParams, requestInvoice } from './services/lnurl.ts';
 import { cachedSearch, fetchFollows, poolQuery, searchProfiles } from './services/nostrSearch.ts';
 import { cachedAvatars } from './services/avatar.ts';
 import { npubEncode } from 'nostr-tools/nip19';
-import { FOLLOWS_CACHE_KEY, FOLLOWS_CACHE_MS, MY_PUBKEY_KEY, SEARCH_CACHE_MS } from './constants.ts';
+import { FOLLOWS_CACHE_KEY, FOLLOWS_CACHE_MS, MY_PUBKEY_KEY, PICTURE_PROXY_KEY, SEARCH_CACHE_MS } from './constants.ts';
 
 const fetchFn = globalThis.fetch.bind(globalThis);
-const avatar = cachedAvatars(fetchFn);
+// The image proxy is on unless switched off in Settings.
+const avatar = cachedAvatars(fetchFn, async () => (await chrome.storage.local.get(PICTURE_PROXY_KEY))[PICTURE_PROXY_KEY] !== false);
 
 /** Who the person follows, if they gave their npub; cached in storage for an hour. */
 async function follows(): Promise<Set<string>> {

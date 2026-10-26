@@ -87,10 +87,11 @@ export const FOLLOWS_CACHE_KEY = 'followsCache';
 
 export const FOLLOWS_CACHE_MS = 60 * 60_000;
 
-/** Profile pictures: largest accepted, and how many are kept in memory. */
-export const AVATAR_MAX_BYTES = 300 * 1024;
+/** Profile pictures kept in memory by the background. */
+export const AVATAR_CACHE_SIZE = 300;
 
-export const AVATAR_CACHE_SIZE = 150;
+/** Load pictures whose host refuses cross-origin reads through the wsrv.nl image proxy (default on). */
+export const PICTURE_PROXY_KEY = 'pictureProxy';
 
 export const MAX_SEARCH_RESULTS = 20;
 

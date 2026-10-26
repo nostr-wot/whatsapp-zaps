@@ -40,7 +40,7 @@ export async function clearDiagnostics(): Promise<void> {
 export function formatDiagnostics(list: Diagnostic[], userAgent: string): string {
   if (list.length === 0) return 'No diagnostics recorded.';
   return [
-    `WhatsApp Web Zaps diagnostics — ${list.length} entr${list.length === 1 ? 'y' : 'ies'}`,
+    `WhatZaps diagnostics — ${list.length} entr${list.length === 1 ? 'y' : 'ies'}`,
     `Browser: ${userAgent}`,
     ...list.map(d => [
       '',

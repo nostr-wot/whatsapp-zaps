@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "WhatsApp Web Zaps",
-  "version": "0.10.0",
-  "description": "Type /zap 1000 in a WhatsApp Web chat to send sats through the Nostr WoT wallet, and link contacts to Nostr profiles.",
+  "name": "WhatZaps",
+  "version": "0.11.0",
+  "description": "Zap your WhatsApp contacts with Lightning: /zap, ⚡ reactions and Nostr profiles, paid through the Nostr WoT wallet.",
   "permissions": [
     "storage"
   ],
@@ -38,7 +38,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "WhatsApp Web Zaps",
+    "default_title": "WhatZaps",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
