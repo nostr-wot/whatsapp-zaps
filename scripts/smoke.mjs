@@ -72,7 +72,8 @@ const server = createServer({ key: readFileSync(join(dir, 'key.pem')), cert: rea
     return json({ tag: 'payRequest', callback: 'https://wallet.example/cb/ana', minSendable: 1000, maxSendable: 1e9, metadata: METADATA, commentAllowed: 50 });
   }
   if (url.pathname === '/cb/ana') return json({ pr: invoiceFor(Number(url.searchParams.get('amount')) / 1000), routes: [] });
-  res.writeHead(404); res.end();
+  // Like real LNURL servers, "not found" is readable cross-origin.
+  res.writeHead(404, { 'access-control-allow-origin': '*' }); res.end();
 });
 // Every relay hostname is mapped to this server; it answers REQs from `profiles`.
 new WebSocketServer({ server }).on('connection', (socket, req) => {
@@ -307,6 +308,33 @@ try {
   assert.equal(await options.isVisible('#connecting'), false, 'done connecting');
   assert.equal(await options.inputValue('#search-query'), '');
 
+  // 7d. A typed Lightning Address that is on no Nostr profile is checked with its
+  //     wallet straight away, and can be saved from the result.
+  await options.fill('#search-query', 'ana@wallet.example');
+  await options.click('#search button[type="submit"]');
+  await options.waitForFunction(() => document.getElementById('search-status').textContent.includes('works as a Lightning Address'));
+  const addressCard = await options.textContent('#search-results .profile');
+  assert.match(addressCard, /ana@wallet\.example.*✓ Lightning Address.*Sats for Ana · 1–1,000,000 sats/s);
+  if (shotDir) await options.screenshot({ path: join(shotDir, '9d-address-checked.png') });
+  await options.fill('#search-results .profile .save input', 'Ana tips');
+  await options.click('#search-results .profile .save button');
+  await options.waitForFunction(() => document.getElementById('status').textContent === 'Saved Ana tips → ana@wallet.example.');
+  const tips = (await worker.evaluate(() => chrome.storage.local.get('zapMappings'))).zapMappings.global['name:ana tips'];
+  assert.equal(tips.address, 'ana@wallet.example');
+  assert.equal(tips.pubkey, undefined, 'a plain Lightning Address, no Nostr profile');
+  await options.fill('#search-query', 'nobody@wallet.example');
+  await options.click('#search button[type="submit"]');
+  await options.waitForFunction(() => document.getElementById('search-status').classList.contains('error'));
+  assert.match(await options.textContent('#search-status'), /nobody@wallet\.example is not a Lightning Address/);
+  await options.click('#search-clear');
+  // Typing an address by hand: checked before Add is pressed.
+  if (!await options.evaluate(() => document.querySelector('details').open)) await options.click('summary');
+  await options.fill('#add-global input[name="address"]', 'nobody@wallet.example');
+  await options.waitForFunction(() => document.getElementById('add-check').classList.contains('error'));
+  await options.fill('#add-global input[name="address"]', 'ana@wallet.example');
+  await options.waitForFunction(() => document.getElementById('add-check').textContent.startsWith('✓ Works as a Lightning Address · Sats for Ana'));
+  await options.fill('#add-global input[name="address"]', '');
+
   // 7c. Theme: Nostr WoT's palettes, for this page and for WhatsApp.
   const bodyColor = () => options.evaluate(() => [document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor]);
   assert.deepEqual(await bodyColor(), ['light', 'rgb(255, 255, 255)'], 'Nostr WoT Light by default');
@@ -467,6 +495,16 @@ try {
   if (shotDir) await page.screenshot({ path: join(shotDir, '8e-header.png'), clip: { x: 0, y: 0, width: 420, height: 60 } });
   await page.click('#fake-header-icons [data-whatsapp-zaps-ui="contact-nostr"] [role="button"]');
   assert.match(await waitForDialog(/Nostr profile/), /Friends & Family/, 'the open chat');
+  // A Lightning Address typed in the popup is checked as soon as typing pauses.
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('ana@wallet.example');
+  const typedCheck = await waitForDialog(/works as a Lightning Address/);
+  console.log('typed address:', typedCheck.slice(0, 150));
+  assert.match(typedCheck, /✓ ana@wallet\.example works as a Lightning Address.*Sats for Ana · 1–1,000,000 sats/s);
+  await shot('8f-typed-address');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('nobody@wallet.example');
+  assert.match(await waitForDialog(/nobody@wallet\.example is not a Lightning Address/), /has no wallet by that name/);
   await clickInDialog(/^Close$/);
   await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
 

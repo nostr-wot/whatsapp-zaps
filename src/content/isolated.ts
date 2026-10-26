@@ -148,6 +148,7 @@ const dialog = new ZapDialog({
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
   avatar: url => ask<string | null>({ type: 'avatar', url }),
   profile: pubkey => ask<ProfileResult | null>({ type: 'profile', pubkey }),
+  check: address => ask<RecipientInfo>({ type: 'resolve', address }),
 });
 
 /** What the flows need to know about the open chat. */

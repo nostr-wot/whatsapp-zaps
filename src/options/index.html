@@ -118,6 +118,13 @@
     .hint:not([hidden]) + #search-status { margin-top: 0; }
     #search-status:empty { display: none; }
     #search-status.error { color: var(--error); }
+    #search-status.ok { color: var(--success); }
+    /* A typed Lightning Address, checked with its wallet as it is typed. */
+    .address-check { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+    .address-check:empty { display: none; }
+    .address-check.ok { color: var(--success); }
+    .address-check.error { color: var(--error); }
+    form.edit .address-check { grid-column: 1 / -1; margin: 0; }
     #search-results { margin-top: 10px; }
     #search-results:empty { display: none; }
     .connecting { display: flex; gap: 10px; align-items: center; margin: 0 0 10px; padding: 10px 12px; border-radius: var(--radius-panel);
@@ -237,7 +244,7 @@
           <span id="connecting-text"></span>
           <button type="button" class="small" id="connecting-cancel">Cancel</button>
         </div>
-        <p class="hint muted" id="search-hint">Search by name, npub or NIP-05 and save the Lightning Address from their profile. Searches go to public Nostr relays.</p>
+        <p class="hint muted" id="search-hint">Search by name, npub or NIP-05 and save the Lightning Address from their profile, or type a Lightning Address to check it. Searches go to public Nostr relays; a Lightning Address is checked with its own wallet.</p>
         <p id="search-status" class="muted" aria-live="polite"></p>
         <div id="search-results"></div>
       </section>
@@ -250,9 +257,10 @@
           <summary>Add a Lightning Address by hand</summary>
           <form class="grid2" id="add-global">
             <input name="name" placeholder="Name as shown in WhatsApp" required aria-label="Contact name">
-            <input name="address" placeholder="name@wallet.com" required aria-label="Lightning Address">
+            <input name="address" placeholder="name@wallet.com" required aria-label="Lightning Address" spellcheck="false" autocomplete="off">
             <button type="submit" class="primary">Add</button>
           </form>
+          <p class="address-check" id="add-check" aria-live="polite"></p>
         </details>
       </section>
     </div>

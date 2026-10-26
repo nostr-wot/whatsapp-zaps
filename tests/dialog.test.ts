@@ -522,3 +522,98 @@ describe('ZapDialog — the person being paid', () => {
     assert.equal(t.root().querySelector('h2 button.close'), null, 'no close while paying');
   });
 });
+
+describe('ZapDialog — a typed Lightning Address is checked as it is typed', () => {
+  beforeEach(() => { installDom(); });
+
+  const INFO = { address: 'tips@wallet.example', domain: 'wallet.example', minSats: 1, maxSats: 1000, commentAllowed: 0, description: 'Tips jar' };
+  const contact = { kind: 'contact' as const, id: '5491100000000@c.us', name: 'Ana Paula' };
+  const pause = () => new Promise(r => setTimeout(r, 520));
+
+  function make(opts: { found?: unknown[]; check?: (a: string) => Promise<typeof INFO>; search?: (q: string) => Promise<unknown[]> } = {}) {
+    const queries: string[] = [];
+    const checks: string[] = [];
+    const dialog = new ZapDialog({
+      shadowMode: 'open', requireTrusted: false,
+      search: q => { queries.push(q); return (opts.search ?? (async () => opts.found ?? []))(q) as never; },
+      check: a => { checks.push(a); return (opts.check ?? (async () => INFO))(a); },
+    });
+    const root = () => document.querySelector('[data-whatsapp-zaps]')!.shadowRoot!;
+    const type = (selector: string, text: string) => {
+      const input = root().querySelector(selector) as HTMLInputElement;
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+    };
+    return { dialog, root, type, queries, checks };
+  }
+
+  it('in the Nostr profile popup: shows that it works before Link is pressed, and links it', async () => {
+    const t = make();
+    const answer = t.dialog.link({ contact, current: null, members: [] });
+    t.type('#wz-query', 'tips@wallet.example');
+    await pause();
+    assert.deepEqual(t.queries, ['tips@wallet.example'], 'Nostr first');
+    assert.deepEqual(t.checks, ['tips@wallet.example'], 'then the wallet, without pressing anything');
+    assert.match(t.root().querySelector('.ok')!.textContent!, /✓ tips@wallet\.example works as a Lightning Address/);
+    const card = t.root().querySelector('.results button.option') as HTMLButtonElement;
+    assert.match(card.textContent!, /tips@wallet\.example.*✓ Lightning Address.*Tips jar · 1–1,000 sats/s);
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { action: 'link', address: 'tips@wallet.example' });
+    assert.deepEqual(t.queries, ['tips@wallet.example'], 'not looked up again on Link');
+  });
+
+  it('says at once when the address does not work', async () => {
+    const t = make({ check: async () => { throw new Error('LNURL: endpoint returned 404'); } });
+    void t.dialog.link({ contact, current: null, members: [] });
+    t.type('#wz-query', 'nobody@wallet.example');
+    await pause();
+    assert.match(t.root().querySelector('p.error')!.textContent!, /nobody@wallet\.example is not a Lightning Address: wallet\.example has no wallet by that name/);
+    assert.equal(t.root().querySelectorAll('.results button.option').length, 0);
+  });
+
+  it('is not checked when a Nostr profile stands for it, nor for names', async () => {
+    const t = make({ found: [{ pubkey: 'f'.repeat(64), npub: 'npub1f', displayName: 'Tips', name: null, nip05: null, nip05Verified: false, lud16: 'tips@wallet.example', picture: null, followed: false, createdAt: 1 }] });
+    void t.dialog.link({ contact, current: null, members: [] });
+    t.type('#wz-query', 'tips@wallet.example');
+    await pause();
+    t.type('#wz-query', 'Ana');
+    await pause();
+    assert.deepEqual(t.checks, []);
+  });
+
+  it('is still checked when the Nostr search fails', async () => {
+    const t = make({ search: async () => { throw new Error('relays unreachable'); } });
+    void t.dialog.link({ contact, current: null, members: [] });
+    t.type('#wz-query', 'tips@wallet.example');
+    await pause();
+    assert.deepEqual(t.checks, ['tips@wallet.example']);
+    assert.match(t.root().querySelector('.ok')!.textContent!, /works as a Lightning Address/);
+  });
+
+  it('when asked for an address to pay: picking the checked address fills it in, and Continue uses it', async () => {
+    const t = make();
+    const answer = t.dialog.askAddress('Ana', null);
+    t.type('input[type="text"]', 'Tips@Wallet.example');
+    await pause();
+    (t.root().querySelector('.results button.option') as HTMLButtonElement).click();
+    assert.equal((t.root().querySelector('input[type="text"]') as HTMLInputElement).value, 'tips@wallet.example');
+    assert.match(t.root().textContent!, /Selected tips@wallet\.example/);
+    t.root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.deepEqual(await answer, { address: 'tips@wallet.example', remember: 'global' });
+    assert.equal(t.queries.length, 1, 'not looked up again on Continue');
+  });
+
+  it('ignores a check that finished after the text changed', async () => {
+    let release!: (info: typeof INFO) => void;
+    const t = make({ check: a => (a === 'slow@wallet.example' ? new Promise(r => { release = r; }) : Promise.resolve(INFO)) });
+    void t.dialog.link({ contact, current: null, members: [] });
+    t.type('#wz-query', 'slow@wallet.example');
+    await pause();
+    t.type('#wz-query', 'Ana');
+    await pause();
+    release({ ...INFO, address: 'slow@wallet.example' });
+    await new Promise(r => setTimeout(r, 0));
+    assert.doesNotMatch(t.root().textContent!, /works as a Lightning Address/, 'no stale “works” message');
+    assert.equal(t.root().querySelectorAll('.results button.option').length, 0, 'no stale card');
+  });
+});

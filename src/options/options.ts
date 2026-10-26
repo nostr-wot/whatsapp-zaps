@@ -13,7 +13,10 @@ import {
 import { PALETTES, hasAppearance, parseThemeChoice, resolveTheme, type Appearance, type PaletteId, type ThemeChoice } from '../ui/themes.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
 import { parseSearchQuery, shortNpub, type ProfileResult } from '../domain/nostr.ts';
-import type { BackgroundResponse } from '../domain/messages.ts';
+import type { BackgroundResponse, RecipientInfo } from '../domain/messages.ts';
+import { isLightningAddress } from '../domain/lnurl.ts';
+import { recipientSummary, shouldCheckAsAddress } from '../domain/addressCheck.ts';
+import { explainLookupError } from '../domain/errors.ts';
 import { clearDiagnostics, formatDiagnostics, loadDiagnostics } from '../services/diagnostics.ts';
 import { npubEncode } from 'nostr-tools/nip19';
 
@@ -41,6 +44,37 @@ async function ask<T>(message: unknown): Promise<T> {
   if (!response) throw new Error('The extension background did not answer.');
   if (!response.ok) throw new Error(response.error);
   return response.value;
+}
+
+/**
+ * Check a Lightning Address typed into a form, after a pause, and say under
+ * it whether its wallet answers — before Save or Add is pressed. Only typing
+ * starts a check; an address filled in for the person is not checked again.
+ */
+function liveAddressCheck(input: HTMLInputElement, note: HTMLElement): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let run = 0;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const current = ++run;
+    const address = input.value.trim();
+    note.className = 'address-check';
+    note.textContent = '';
+    if (!isLightningAddress(address)) return;
+    timer = setTimeout(async () => {
+      note.textContent = `Checking ${address}…`;
+      try {
+        const info = await ask<RecipientInfo>({ type: 'resolve', address });
+        if (current !== run) return;
+        note.className = 'address-check ok';
+        note.textContent = `✓ Works as a Lightning Address · ${recipientSummary(info)}`;
+      } catch (err) {
+        if (current !== run) return;
+        note.className = 'address-check error';
+        note.textContent = explainLookupError(address, err);
+      }
+    }, 500);
+  });
 }
 
 // ── People ──
@@ -113,7 +147,10 @@ function editRow(row: HTMLElement, mapping: Mapping, scope: MappingScope, contac
   cancel.type = 'button';
   const buttons = el('div', 'edit-actions');
   buttons.append(cancel, save);
-  form.append(name, address, buttons);
+  const note = el('p', 'address-check');
+  note.setAttribute('aria-live', 'polite');
+  liveAddressCheck(address, note);
+  form.append(name, address, note, buttons);
   const face = row.querySelector('.avatar');
   row.replaceChildren(...(face ? [face] : []), form);
   row.classList.add('editing');
@@ -218,11 +255,14 @@ $('add-global').addEventListener('submit', async event => {
   try {
     await updateMappings(s => saveMapping(s, { kind: 'global' }, `name:${normalizeName(name)}`, name, address));
     form.reset();
+    $('add-check').textContent = '';
     setStatus(`Saved ${name}.`);
   } catch (err) {
     setStatus(err instanceof Error ? err.message : String(err), true);
   }
 });
+
+liveAddressCheck($<HTMLFormElement>('add-global').elements.namedItem('address') as HTMLInputElement, $('add-check'));
 
 // ── Nostr search ──
 
@@ -296,6 +336,60 @@ function profileRow(profile: ProfileResult): HTMLElement {
   return row;
 }
 
+/** A Lightning Address that works but is on no Nostr profile, with a form to save it under a WhatsApp name. */
+function addressRow(info: RecipientInfo): HTMLElement {
+  const row = el('div', 'profile');
+  const face = el('span', 'avatar', '⚡');
+  face.setAttribute('aria-hidden', 'true');
+  const who = el('div', 'who');
+  const top = el('div', 'line');
+  top.append(el('strong', '', info.address), el('span', 'chip verified', '✓ Lightning Address'));
+  who.append(top, el('span', 'muted', recipientSummary(info)));
+  const form = el('form', 'save');
+  const name = el('input');
+  name.required = true;
+  name.placeholder = 'Name in WhatsApp';
+  name.setAttribute('aria-label', `WhatsApp name for ${info.address}`);
+  const save = el('button', 'primary', 'Save');
+  save.type = 'submit';
+  form.append(name, save);
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const label = name.value.trim();
+    try {
+      await updateMappings(s => saveMapping(s, { kind: 'global' }, `name:${normalizeName(label)}`, label, info.address));
+      setStatus(`Saved ${label} → ${info.address}.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err), true);
+    }
+  });
+  row.append(face, who, form);
+  return row;
+}
+
+/**
+ * A typed name@domain that no Nostr profile stands for: check it as a
+ * Lightning Address at once and, when it works, offer to save it.
+ */
+async function offerAddress(address: string, found: ProfileResult[], run: number) {
+  const status = $('search-status');
+  status.className = 'muted';
+  status.textContent = found.length
+    ? `Checking ${address} as a Lightning Address…`
+    : `No Nostr profile uses ${address}. Checking it as a Lightning Address…`;
+  try {
+    const info = await ask<RecipientInfo>({ type: 'resolve', address });
+    if (run !== searchRun) return;
+    status.className = 'ok';
+    status.textContent = `✓ ${info.address} works as a Lightning Address. Save it under their WhatsApp name.`;
+    $('search-results').prepend(addressRow(info));
+  } catch (err) {
+    if (run !== searchRun) return;
+    status.className = 'error';
+    status.textContent = explainLookupError(address, err);
+  }
+}
+
 function showSearching() {
   const status = $('search-status');
   status.textContent = 'Searching Nostr…';
@@ -335,16 +429,24 @@ async function runSearch(query: string) {
   const run = ++searchRun;
   $('search-hint').hidden = true;
   showSearching();
+  let found: ProfileResult[] = [];
   try {
-    const found = await ask<ProfileResult[]>({ type: 'search', query });
-    if (run === searchRun) showResults(found);
+    found = await ask<ProfileResult[]>({ type: 'search', query });
+    if (run !== searchRun) return;
+    showResults(found);
   } catch (err) {
     if (run !== searchRun) return;
     $('search-results').replaceChildren();
-    const status = $('search-status');
-    status.textContent = err instanceof Error ? err.message : String(err);
-    status.className = 'error';
+    // A Lightning Address is still checked below; the search trouble only matters otherwise.
+    if (connecting || !shouldCheckAsAddress(query, [])) {
+      const status = $('search-status');
+      status.textContent = err instanceof Error ? err.message : String(err);
+      status.className = 'error';
+      return;
+    }
   }
+  // Connecting is about Nostr profiles; a plain Lightning Address has none.
+  if (!connecting && shouldCheckAsAddress(query, found)) await offerAddress(query.trim(), found, run);
 }
 
 const queryInput = $<HTMLInputElement>('search-query');

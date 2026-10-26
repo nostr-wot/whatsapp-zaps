@@ -258,13 +258,26 @@ Anyone can call themselves "Ana", so each search result shows:
 Profiles are only accepted with a valid signature, so a relay can't change
 someone's Lightning Address. Verified profiles are listed first.
 
-### Typing a Nostr address
+### Typing a Lightning Address or a Nostr address
 
 A NIP-05 Nostr address (`ana@some-nostr-site.com`) looks exactly like a
 Lightning Address, but it usually is not one: its server answers "not found"
-(404). So a `name@domain` you type is first checked on Nostr. If it is the
+(404). So a `name@domain` you type is first looked up on Nostr. If it is the
 verified NIP-05 of a profile, that profile's Lightning Address is used, and the
-popup or confirm screen shows it. Otherwise it is used as you typed it.
+popup or confirm screen shows it.
+
+When no Nostr profile uses it, the address is checked with its wallet as soon
+as you pause typing, without pressing Save, Link or Continue. A working
+address shows as a result with what its wallet says about it and the amounts
+it accepts. Pick it, or just press the button. One that does not work says why
+right away (no wallet by that name, or the server did not answer).
+
+The same check runs in the popup and on the contacts page:
+
+- in **Find on Nostr**, where a working address can then be saved under a
+  WhatsApp name,
+- in **Add a Lightning Address by hand**,
+- when you edit a contact's address.
 
 ### Searching
 
@@ -293,6 +306,9 @@ is signed or published.
   you search for. Results are cached for five minutes.
 - **npub and NIP-05 lookups** ask a few general relays for that one profile.
   A NIP-05 lookup also fetches `https://<domain>/.well-known/nostr.json`.
+- **A typed Lightning Address** that no Nostr profile uses is checked with
+  its own wallet (`https://<domain>/.well-known/lnurlp/<name>`), as paying it
+  would.
 
 The relay lists are in `src/constants.ts`. These lookups use the same
 safeguards as LNURL: no redirects, a timeout and a size cap.

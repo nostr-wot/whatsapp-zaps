@@ -13,6 +13,9 @@ import type { Mapping } from '../domain/mappings.ts';
 import type { LinkAnswer, LinkUi, LinkView, LinkedMember } from '../linkFlow.ts';
 import { attachStyles } from './styles.ts';
 import { THEMES, themeCss, themeVars, type ThemeId } from './themes.ts';
+import { profileForTyped, recipientSummary, shouldCheckAsAddress } from '../domain/addressCheck.ts';
+import { explainLookupError } from '../domain/errors.ts';
+import type { RecipientInfo } from '../domain/messages.ts';
 
 /**
  * Nostr WoT's look: its theme tokens on the host (data-theme says which
@@ -275,6 +278,7 @@ export class ZapDialog implements ZapUi, LinkUi {
   private readonly avatar: ((url: string) => Promise<string | null>) | null;
   private readonly profile: ((pubkey: string) => Promise<ProfileResult | null>) | null;
   private readonly theme: (() => ThemeId) | null;
+  private readonly check: ((address: string) => Promise<RecipientInfo>) | null;
   /** Who the current zap is for, so the waiting screens can show them. */
   private person: { name: string; person?: PersonView } | null = null;
 
@@ -296,6 +300,8 @@ export class ZapDialog implements ZapUi, LinkUi {
     profile?: (pubkey: string) => Promise<ProfileResult | null>;
     /** The Nostr WoT theme to draw in (see themes.ts); Nostr WoT Light without it. */
     theme?: () => ThemeId;
+    /** Check a Lightning Address with its wallet (LNURL-pay); typed addresses are not checked without it. */
+    check?: (address: string) => Promise<RecipientInfo>;
   } = {}) {
     this.doc = options.doc ?? document;
     this.onClosed = options.onClosed ?? (() => {});
@@ -305,6 +311,7 @@ export class ZapDialog implements ZapUi, LinkUi {
     this.avatar = options.avatar ?? null;
     this.profile = options.profile ?? null;
     this.theme = options.theme ?? null;
+    this.check = options.check ?? null;
   }
 
   /** Run `handler` on click, but only for clicks a person made. */
@@ -416,6 +423,7 @@ export class ZapDialog implements ZapUi, LinkUi {
       const results = h('div', { class: 'results' });
       const cancel = h('button', { type: 'button' }, 'Cancel');
       const searchButton = h('button', { type: 'button' }, 'Search Nostr');
+      const continueButton = h('button', { type: 'submit', class: 'primary' }, 'Continue');
       const form = h('form', {},
         h('h2', {}, `Zap @${name}`),
         h('div', { class: 'intro' }, this.personFace(name, undefined),
@@ -427,12 +435,14 @@ export class ZapDialog implements ZapUi, LinkUi {
         radio('global', 'Remember in every chat', !chatTitle),
         radio('once', 'Use once, don’t remember'),
         message,
-        h('div', { class: 'actions' }, cancel, h('button', { type: 'submit', class: 'primary' }, 'Continue')),
+        h('div', { class: 'actions' }, cancel, continueButton),
       );
 
       // Set when the address came from a search result; cleared if the user edits it.
       let picked: { pubkey: string; address: string; profile: ProfileResult } | null = null;
       let searchRun = 0;
+      // Addresses already checked and confirmed as plain Lightning Addresses.
+      const plain = new Set<string>();
       input.addEventListener('input', () => {
         if (picked && input.value.trim() !== picked.address) picked = null;
       });
@@ -443,8 +453,9 @@ export class ZapDialog implements ZapUi, LinkUi {
         const run = ++searchRun;
         message.textContent = '';
         this.showSearching(status, results);
+        let found: ProfileResult[] = [];
         try {
-          const found = await this.search(query);
+          found = await this.search(query);
           if (run !== searchRun) return;
           this.showResults(found, status, results, input, profile => {
             input.value = profile.lud16!;
@@ -456,8 +467,21 @@ export class ZapDialog implements ZapUi, LinkUi {
         } catch (err) {
           if (run !== searchRun) return;
           status.textContent = '';
-          message.textContent = err instanceof Error ? err.message : String(err);
+          results.replaceChildren();
+          // A Lightning Address is still checked below; the search trouble only matters otherwise.
+          if (!shouldCheckAsAddress(query, [])) { message.textContent = err instanceof Error ? err.message : String(err); return; }
         }
+        await this.offerTypedAddress(query, found, { status, results, isCurrent: () => run === searchRun }, {
+          works: info => { plain.add(query); plain.add(info.address); },
+          pick: info => {
+            input.value = info.address;
+            picked = null;
+            status.className = 'muted';
+            status.textContent = `Selected ${info.address}`;
+            results.replaceChildren();
+            continueButton.focus();
+          },
+        });
       };
 
       const done = (value: AddressAnswer | null) => { searchRun++; this.onCancel = null; resolve(value); };
@@ -478,8 +502,6 @@ export class ZapDialog implements ZapUi, LinkUi {
           } : {}),
         });
       };
-      // Addresses already checked and confirmed as plain Lightning Addresses.
-      const plain = new Set<string>();
       form.addEventListener('submit', e => {
         e.preventDefault();
         if (this.requireTrusted && !e.isTrusted) return;
@@ -588,14 +610,28 @@ export class ZapDialog implements ZapUi, LinkUi {
         if (!this.search || !query) return;
         const run = ++searchRun;
         this.showSearching(status, results);
+        let found: ProfileResult[] = [];
         try {
-          const found = await this.search(query);
+          found = await this.search(query);
           if (run !== searchRun) return;
           this.showResults(found, status, results, input, pick);
         } catch (err) {
           if (run !== searchRun) return;
+          results.replaceChildren();
           status.textContent = err instanceof Error ? err.message : String(err);
         }
+        await this.offerTypedAddress(query, found, { status, results, isCurrent: () => run === searchRun }, {
+          works: info => { plain.add(query); plain.add(info.address); },
+          pick: info => {
+            picked = null;
+            input.value = info.address;
+            status.className = 'muted';
+            status.textContent = `Selected ${info.address}`;
+            results.replaceChildren();
+            refresh();
+            linkButton.focus();
+          },
+        });
       };
 
       const form = h('form', {},
@@ -608,7 +644,7 @@ export class ZapDialog implements ZapUi, LinkUi {
         results,
         message,
         h('p', { class: 'muted small-print' },
-          'Links are saved only in this browser. Searching sends what you type to public Nostr relays.'),
+          'Links are saved only in this browser. Searching sends what you type to public Nostr relays; a Lightning Address is checked with its own wallet.'),
         h('div', { class: 'actions' }, close, linkButton),
       );
       this.onClick(close, () => done(null));
@@ -654,11 +690,52 @@ export class ZapDialog implements ZapUi, LinkUi {
       // Lookup trouble is not a reason to refuse what was typed.
     }
     if (!ui.isCurrent()) return;
-    const lower = address.toLowerCase();
-    const profile = found.find(p => p.lud16 && (p.lud16 === lower || (p.nip05Verified && p.nip05 === lower)));
+    const profile = profileForTyped(address, found);
     ui.status.textContent = '';
     if (profile) on.pick(profile);
     else on.plain();
+  }
+
+  /**
+   * After a search for a typed name@domain that no Nostr profile stands for,
+   * check it as a Lightning Address at once, so the person sees whether it
+   * works before pressing anything. A working one is shown as a result to pick.
+   */
+  private async offerTypedAddress(
+    query: string,
+    found: ProfileResult[],
+    ui: { status: HTMLElement; results: HTMLElement; isCurrent: () => boolean },
+    on: { works: (info: RecipientInfo) => void; pick: (info: RecipientInfo) => void },
+  ): Promise<void> {
+    if (!this.check || !shouldCheckAsAddress(query, found)) return;
+    const address = query.trim();
+    ui.status.className = 'muted';
+    ui.status.textContent = found.length
+      ? `Checking ${address} as a Lightning Address…`
+      : `No Nostr profile uses ${address}. Checking it as a Lightning Address…`;
+    try {
+      const info = await this.check(address);
+      if (!ui.isCurrent()) return;
+      on.works(info);
+      ui.status.className = 'ok';
+      ui.status.textContent = `✓ ${info.address} works as a Lightning Address.`;
+      ui.results.prepend(this.addressOption(info, () => on.pick(info)));
+    } catch (err) {
+      if (!ui.isCurrent()) return;
+      ui.status.className = 'error';
+      ui.status.textContent = explainLookupError(address, err);
+    }
+  }
+
+  /** A checked Lightning Address as a result: what its wallet says about it, ready to pick. */
+  private addressOption(info: RecipientInfo, onPick: () => void): HTMLElement {
+    const button = h('button', { type: 'button', class: 'option' },
+      h('span', { class: 'avatar', 'aria-hidden': 'true' }, '⚡'),
+      h('span', { class: 'who' },
+        h('span', { class: 'chips' }, h('span', { class: 'name' }, info.address), h('span', { class: 'chip verified' }, '✓ Lightning Address')),
+        h('span', { class: 'muted' }, recipientSummary(info))));
+    this.onClick(button, onPick);
+    return button;
   }
 
   /** A saved link: the Nostr name and verified NIP-05 when there is one, the npub, the address. */
@@ -705,6 +782,7 @@ export class ZapDialog implements ZapUi, LinkUi {
   }
 
   private showSearching(status: HTMLElement, results: HTMLElement): void {
+    status.className = 'muted';
     status.textContent = 'Searching Nostr…';
     results.replaceChildren(...[0, 1, 2].map(() => h('div', { class: 'skeleton', 'aria-hidden': 'true' },
       h('span', { class: 'avatar skeleton-dot' }), h('span', { class: 'skeleton-lines' }, h('span'), h('span')))));
