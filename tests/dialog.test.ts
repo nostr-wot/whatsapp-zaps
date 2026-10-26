@@ -39,6 +39,27 @@ describe('ZapDialog', () => {
     assert.deepEqual(await answer, { post: true });
   });
 
+  it('draws in the chosen Nostr WoT theme', async () => {
+    let theme: 'coracle' | 'lacrypta' = 'coracle';
+    const dialog = new ZapDialog({ shadowMode: 'open', requireTrusted: false, theme: () => theme });
+    const answer = dialog.confirm(DETAILS);
+    const host = () => document.querySelector('[data-whatsapp-zaps]') as HTMLElement;
+    assert.equal(host().dataset.theme, 'coracle');
+    const css = [...(host().shadowRoot!.adoptedStyleSheets ?? [])].flatMap(sheet => [...sheet.cssRules].map(r => r.cssText)).join(' ')
+      + [...host().shadowRoot!.querySelectorAll('style')].map(s => s.textContent).join(' ');
+    assert.match(css, /data-theme="coracle"/);
+    assert.match(css, /--brand/);
+    host().shadowRoot!.querySelector('.backdrop')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.equal(await answer, false);
+    dialog.close();
+    theme = 'lacrypta';
+    const again = dialog.confirm(DETAILS);
+    assert.equal(host().dataset.theme, 'lacrypta', 'read again each time it opens');
+    host().shadowRoot!.querySelector('.backdrop')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await again;
+    dialog.close();
+  });
+
   it('ignores synthetic clicks on Pay by default', async () => {
     const { dialog, button } = open(true);
     let settled = false;

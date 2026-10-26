@@ -9,6 +9,9 @@ This extension contains code ported from Nostr WoT
 - tests/lnurl.test.ts       from tests/wallet/lnurl.test.ts
 
 - src/services/http.ts      from src/services/wallet/lnurl.ts (bounded JSON fetch)
+- src/ui/themes.ts          palettes from src/styles/theme.css (light, dark,
+                            La Crypta, Coracle, noStrudel, YakiHonne, Nostrich)
+                            and the contours of src/components/TopoBg
 
 Keep the LNURL safety checks in step with the upstream copies.
 

@@ -56,6 +56,10 @@ import { installZapButton } from '../whatsapp/zapButton.ts';
 import { isHookStatusEvent, isReactionZapEvent } from './reactionHook.ts';
 import { REACTION_HOOK_STATUS_KEY } from '../constants.ts';
 import { installCommandHighlight, updateHighlight } from '../whatsapp/highlight.ts';
+import { installPersonMenuItem } from '../whatsapp/menu.ts';
+import { contactForShown, isChatName, paintBolts, phoneIdOf, shownNear } from '../whatsapp/contactInfo.ts';
+import { markColor } from '../ui/themes.ts';
+import { storedChoice, watchTheme, whatsappDark, type ChoiceSource } from '../ui/themeWatch.ts';
 
 async function ask<T>(request: BackgroundRequest): Promise<T> {
   if (!isExtensionAlive()) throw new Error(RELOAD_MESSAGE);
@@ -122,10 +126,24 @@ async function reactionAmount(): Promise<number> {
   return typeof amount === 'number' && Number.isSafeInteger(amount) && amount > 0 ? amount : DEFAULT_REACTION_SATS;
 }
 
+// Nostr WoT's look (Settings → Theme), light or dark as WhatsApp is.
+const noChoice: ChoiceSource = { load: async () => undefined, subscribe: () => () => {} };
+let paintMarks: (color: string) => void = () => {};
+const theme = watchTheme(isExtensionAlive() ? storedChoice() : noChoice, whatsappDark(document), view => {
+  for (const host of document.querySelectorAll<HTMLElement>('[data-whatsapp-zaps], [data-whatsapp-zaps-ui="zap-button"]')) {
+    host.dataset.theme = view.id;
+  }
+  paintMarks(markColor(view.choice.palette, view.dark));
+});
+uninstallers.push(theme.stop);
+/** The colour of marks drawn on WhatsApp itself: the /zap command, the ⚡ Nostr buttons. */
+const markNow = () => { const view = theme.current(); return markColor(view.choice.palette, view.dark); };
+
 let busy = false;
 const replies = installReplyTracker();
 uninstallers.push(replies.uninstall);
 const dialog = new ZapDialog({
+  theme: () => theme.current().id,
   onClosed: () => { busy = false; },
   search: query => ask<ProfileResult[]>({ type: 'search', query }),
   avatar: url => ask<string | null>({ type: 'avatar', url }),
@@ -283,7 +301,7 @@ uninstallers.push(installZapButton(row => {
     .then(amount => runReactionZap({ ...author, messageId: row.getAttribute('data-id') ?? '' }, amount, chatContext(), zapDeps(null),
       'For this message. Nothing is posted in the chat.'))
     .finally(() => { busy = false; });
-}, { amount: () => reactionSats, shouldHandle: () => zapButtonOn && current() }));
+}, { amount: () => reactionSats, shouldHandle: () => zapButtonOn && current(), theme: () => theme.current().id }));
 
 // Troubleshooting (Settings → "Record reaction clicks"): for ten minutes, keep
 // the markup of clicks outside the chat and of what appears inside messages.
@@ -320,15 +338,22 @@ function openNostrProfile(contact: ChatContact | null) {
 // "⚡ Nostr profile" in the chat header's ⋮ menu.
 uninstallers.push(installMenuItem(() => openNostrProfile(readChatContact()), document, current));
 
-// "⚡ Nostr" beside Voice / Video / Search in WhatsApp's contact info. In a
-// group, the panel may be a member's: their phone number there says who.
-uninstallers.push(installContactInfoButton(shownId => {
-  const chat = readChatContact();
-  if (shownId && chat?.kind === 'group') {
-    openNostrProfile({ kind: 'contact', id: shownId, name: shownId.replace(/@.*/, '').replace(/^/, '+') });
-  } else {
-    openNostrProfile(chat);
-  }
+// "⚡ Nostr" beside WhatsApp's own ways to reach someone: Voice / Video /
+// Search in contact and group info, the chat header's icons, profile
+// previews. The panel may be about someone other than the open chat (a group
+// member, a chat from the list): the name or number it shows says who.
+uninstallers.push(installContactInfoButton(row => {
+  openNostrProfile(contactForShown(shownNear(row, name => isChatName(name)), readChatContact()));
+}, document, current, markNow));
+
+// "⚡ Nostr profile" in WhatsApp's menus about a person ("Message Ana").
+uninstallers.push(installPersonMenuItem(name => {
+  openNostrProfile(contactForShown({ inHeader: false, id: phoneIdOf(name), name }, readChatContact()));
 }, document, current));
 
-uninstallers.push(installCommandHighlight());
+const highlight = installCommandHighlight(document, markNow());
+uninstallers.push(highlight.uninstall);
+paintMarks = color => {
+  highlight.setColor(color);
+  paintBolts(color);
+};

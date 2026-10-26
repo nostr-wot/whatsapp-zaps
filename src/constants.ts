@@ -90,6 +90,9 @@ export const FOLLOWS_CACHE_MS = 60 * 60_000;
 /** Profile pictures kept in memory by the background. */
 export const AVATAR_CACHE_SIZE = 300;
 
+/** The chosen look: `{ palette, appearance }` (see ui/themes.ts), Nostr WoT's themes. */
+export const THEME_KEY = 'theme';
+
 /** Load pictures whose host refuses cross-origin reads through the wsrv.nl image proxy (default on). */
 export const PICTURE_PROXY_KEY = 'pictureProxy';
 

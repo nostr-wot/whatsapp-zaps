@@ -282,6 +282,59 @@ try {
   // Pictures on the extension's own pages load directly from their host.
   assert.ok(await options.$('#global .avatar img[src="https://wallet.example/ana.png"]'), 'profile picture shown directly');
 
+  // 7b. Connect Nostr: a contact saved by hand is linked to their profile from the list.
+  await options.evaluate(() => window.scrollTo(0, 0));
+  await options.click('summary');
+  await options.fill('#add-global input[name="name"]', 'Ana Paula');
+  await options.fill('#add-global input[name="address"]', 'ana@oldwallet.example');
+  await options.click('#add-global button[type="submit"]');
+  await options.waitForFunction(() => document.getElementById('status').textContent === 'Saved Ana Paula.');
+  assert.equal(await options.$('button[aria-label="Connect Ana W to a Nostr profile"]'), null, 'linked contacts offer no Connect');
+  await options.click('button[aria-label="Connect Ana Paula to a Nostr profile"]');
+  assert.match(await options.textContent('#connecting'), /Connecting Ana Paula/);
+  assert.equal(await options.inputValue('#search-query'), 'Ana Paula', 'searches their name');
+  await options.waitForFunction(() => document.querySelectorAll('#search-results .profile').length === 2);
+  if (shotDir) await options.screenshot({ path: join(shotDir, '9a-connect.png') });
+  const verifiedRow = options.locator('#search-results .profile', { hasText: '✓ ana@nostr.example' });
+  await verifiedRow.locator('button', { hasText: 'Connect' }).click();
+  await options.waitForFunction(() => document.getElementById('status').textContent.startsWith('Connected Ana Paula'));
+  assert.match(await options.textContent('#status'), /Lightning Address: ana@wallet\.example/);
+  const connected = await worker.evaluate(() => chrome.storage.local.get('zapMappings'));
+  assert.deepEqual(
+    { ...connected.zapMappings.global['name:ana paula'], updatedAt: 0 },
+    { address: 'ana@wallet.example', displayName: 'Ana Paula', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
+  );
+  assert.equal(await options.isVisible('#connecting'), false, 'done connecting');
+  assert.equal(await options.inputValue('#search-query'), '');
+
+  // 7c. Theme: Nostr WoT's palettes, for this page and for WhatsApp.
+  const bodyColor = () => options.evaluate(() => [document.documentElement.dataset.theme, getComputedStyle(document.body).backgroundColor]);
+  assert.deepEqual(await bodyColor(), ['light', 'rgb(255, 255, 255)'], 'Nostr WoT Light by default');
+  await options.click('#tab-settings');
+  assert.equal(await options.$$eval('#palettes .swatch', els => els.map(e => e.textContent).join(',')), 'Nostr WoT,La Crypta,Coracle,noStrudel,YakiHonne,Nostrich');
+  await options.click('#palettes .swatch:has-text("Coracle")');
+  await options.waitForFunction(() => document.documentElement.dataset.theme === 'coracle-light');
+  assert.deepEqual(await bodyColor(), ['coracle-light', 'rgb(245, 245, 245)']);
+  await options.click('#appearance-modes label:has-text("Dark")');
+  await options.waitForFunction(() => document.documentElement.dataset.theme === 'coracle');
+  assert.deepEqual(await bodyColor(), ['coracle', 'rgb(38, 38, 38)']);
+  assert.deepEqual((await worker.evaluate(() => chrome.storage.local.get('theme'))).theme, { palette: 'coracle', appearance: 'dark' });
+  if (shotDir) await options.screenshot({ path: join(shotDir, '9b-theme-coracle.png') });
+  await options.click('#palettes .swatch:has-text("La Crypta")');
+  await options.waitForFunction(() => document.documentElement.dataset.theme === 'lacrypta');
+  assert.equal(await options.isDisabled('#appearance-modes input[value="light"]'), true, 'La Crypta has one look');
+  assert.match(await options.textContent('#appearance-hint'), /one palette/);
+  await options.click('#tab-people');
+  if (shotDir) await options.screenshot({ path: join(shotDir, '9c-theme-lacrypta.png') });
+  // Remembered across visits, and drawn before any script runs.
+  await options.reload();
+  assert.equal(await options.evaluate(() => document.documentElement.dataset.theme), 'lacrypta');
+  await options.click('#tab-settings');
+  await options.click('#palettes .swatch:has-text("Nostr WoT")');
+  await options.click('#appearance-modes label:has-text("Auto")');
+  await options.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await options.click('#tab-people');
+
   // 8. ⋮ menu → "Nostr profile" popup in a one-to-one chat: search, link, unlink.
   await page.bringToFront();
   await page.evaluate(() => {
@@ -312,10 +365,26 @@ try {
     { address: 'ana@wallet.example', displayName: 'Friends & Family', updatedAt: 0, pubkey: anaPubkey, nostr: { name: 'Ana Paula', nip05: 'ana@nostr.example', picture: 'https://wallet.example/ana.png' } },
   );
   await shot('5-linked');
+  const dialogTheme = () => page.evaluate(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme);
+  assert.equal(await dialogTheme(), 'light', 'Nostr WoT Light on WhatsApp’s light theme');
   // WhatsApp's own dark theme is a class on <body>; the dialogs follow it.
   await page.evaluate(() => document.body.classList.add('dark'));
+  await page.waitForFunction(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme === 'dark');
+  await page.waitForTimeout(300);
   await shot('6-linked-dark');
   await page.evaluate(() => document.body.classList.remove('dark'));
+  await page.waitForFunction(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme === 'light');
+  // A palette chosen in Settings reaches the open dialog.
+  await worker.evaluate(() => chrome.storage.local.set({ theme: { palette: 'nostrich', appearance: 'auto' } }));
+  await page.waitForFunction(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme === 'nostrich-light');
+  await page.waitForTimeout(300);
+  await shot('6b-linked-nostrich');
+  await worker.evaluate(() => chrome.storage.local.set({ theme: { palette: 'lacrypta', appearance: 'auto' } }));
+  await page.waitForFunction(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme === 'lacrypta');
+  await page.waitForTimeout(300);
+  await shot('6c-linked-lacrypta');
+  await worker.evaluate(() => chrome.storage.local.remove('theme'));
+  await page.waitForFunction(() => document.querySelector('[data-whatsapp-zaps]')?.dataset.theme === 'light');
 
   // 9. Private chat: `/zap 21` with no mention pays the linked contact; the command shows in green.
   await clickInDialog(/^Close$/);
@@ -327,9 +396,17 @@ try {
     box.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await page.waitForSelector('[data-whatsapp-zaps-command]');
-  const color = await page.$eval('footer [contenteditable="true"] span', el => getComputedStyle(el).color);
-  assert.equal(color, 'rgb(0, 128, 105)', 'command shows in WhatsApp green');
-  await shot('7-green-command');
+  const commandColor = () => page.$eval('footer [contenteditable="true"] span', el => getComputedStyle(el).color);
+  assert.equal(await commandColor(), 'rgb(99, 102, 241)', 'command shows in Nostr WoT’s indigo');
+  await shot('7-command');
+  await page.evaluate(() => document.body.classList.add('dark'));
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('footer [contenteditable="true"] span')).color === 'rgb(129, 140, 248)');
+  await page.evaluate(() => document.body.classList.remove('dark'));
+  await worker.evaluate(() => chrome.storage.local.set({ theme: { palette: 'coracle', appearance: 'dark' } }));
+  // On WhatsApp's light theme the mark uses the palette's light variant, whatever the dialogs use.
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('footer [contenteditable="true"] span')).color === 'rgb(252, 86, 14)');
+  await worker.evaluate(() => chrome.storage.local.remove('theme'));
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('footer [contenteditable="true"] span')).color === 'rgb(99, 102, 241)');
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   const privateConfirm = await waitForDialog(/Confirm zap/);
@@ -374,6 +451,73 @@ try {
   await clickInDialog(/^Close$/);
   await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
   await page.evaluate(() => document.getElementById('fake-contact-info').remove());
+
+  // 8c. The chat header's icon buttons (Video call, Search) get a ⚡ beside them.
+  await page.evaluate(() => {
+    const icons = document.createElement('div');
+    icons.id = 'fake-header-icons';
+    icons.style.cssText = 'display:inline-flex;gap:8px';
+    icons.innerHTML = '<div><div role="button" aria-label="Video call" style="width:28px;height:28px;color:#54656f"><span data-icon="video-call"><svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" fill="currentColor"/></svg></span></div></div>'
+      + '<div><div role="button" aria-label="Search…" title="Search…" style="width:28px;height:28px;color:#54656f"><span data-icon="search-alt"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/></svg></span></div></div>';
+    document.querySelector('#main header').insertBefore(icons, document.querySelector('#main header').lastElementChild);
+  });
+  await page.waitForSelector('#fake-header-icons [data-whatsapp-zaps-ui="contact-nostr"]');
+  assert.equal(await page.getAttribute('#fake-header-icons [data-whatsapp-zaps-ui="contact-nostr"] [role="button"]', 'aria-label'), 'Nostr profile');
+  assert.equal(await page.$eval('#fake-header-icons [data-whatsapp-zaps-bolt]', el => getComputedStyle(el).color), 'rgb(99, 102, 241)', 'bolt in the theme colour');
+  if (shotDir) await page.screenshot({ path: join(shotDir, '8e-header.png'), clip: { x: 0, y: 0, width: 420, height: 60 } });
+  await page.click('#fake-header-icons [data-whatsapp-zaps-ui="contact-nostr"] [role="button"]');
+  assert.match(await waitForDialog(/Nostr profile/), /Friends & Family/, 'the open chat');
+  await clickInDialog(/^Close$/);
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
+
+  // 8d. A profile preview of someone else (from the chat list): icon-only buttons.
+  await page.evaluate(() => {
+    const list = document.createElement('div');
+    list.id = 'pane-side';
+    list.innerHTML = '<div role="listitem"><span dir="auto" title="Bruno Díaz">Bruno Díaz</span></div>';
+    document.getElementById('app').prepend(list);
+    const preview = document.createElement('div');
+    preview.id = 'fake-preview';
+    preview.style.cssText = 'position:fixed;left:20px;top:80px;width:260px;padding:12px;background:#fff;box-shadow:0 2px 8px #0003';
+    preview.innerHTML = `<div style="height:90px;background:#ddd"></div>
+      <div><span dir="auto">Bruno Díaz</span></div>
+      <div><span>Hey there! I am using WhatsApp.</span></div>
+      <div class="icons" style="display:flex;gap:12px">
+        <div><div role="button" aria-label="Message" style="width:32px;height:32px"><span data-icon="chat"><svg width="24" height="24"></svg></span></div></div>
+        <div><div role="button" aria-label="Voice call" style="width:32px;height:32px"><span data-icon="voice-call"><svg width="24" height="24"></svg></span></div></div>
+        <div><div role="button" aria-label="Video call" style="width:32px;height:32px"><span data-icon="video-call"><svg width="24" height="24"></svg></span></div></div>
+      </div>`;
+    document.getElementById('app').append(preview);
+  });
+  await page.waitForSelector('#fake-preview [data-whatsapp-zaps-ui="contact-nostr"]');
+  await page.click('#fake-preview [data-whatsapp-zaps-ui="contact-nostr"] [role="button"]');
+  const fromPreview = await waitForDialog(/Nostr profile/);
+  console.log('preview:', fromPreview.slice(0, 80));
+  assert.match(fromPreview, /Nostr profile.*Bruno Díaz/s, 'the person shown, not the open chat');
+  assert.doesNotMatch(fromPreview, /Friends & Family/);
+  await clickInDialog(/^Close$/);
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
+  await page.evaluate(() => { document.getElementById('fake-preview').remove(); document.getElementById('pane-side').remove(); });
+
+  // 8e. A group member's menu ("Message ~ Ana Paula") gets "⚡ Nostr profile";
+  //     Ana Paula was connected on the options page (7b), so she shows as linked.
+  await page.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'fake-dropdown';
+    host.innerHTML = `<div role="application"><ul>
+      <div><li tabindex="-1" data-animate-dropdown-item="true" role="button"><div role="button">Message ~ Ana Paula</div></li></div>
+      <div><li tabindex="-1" data-animate-dropdown-item="true" role="button"><div role="button">Make group admin</div></li></div>
+    </ul></div>`;
+    document.getElementById('app').append(host);
+  });
+  await page.waitForSelector('#fake-dropdown [data-whatsapp-zaps-item]');
+  await page.click('#fake-dropdown [data-whatsapp-zaps-item]');
+  const fromMenu = await waitForDialog(/Nostr profile/);
+  console.log('member menu:', fromMenu.slice(0, 100));
+  assert.match(fromMenu, /Nostr profile.*Ana Paula.*✓ ana@nostr\.example.*ana@wallet\.example/s);
+  assert.equal(await page.$('#fake-dropdown'), null, 'WhatsApp menu closed');
+  await clickInDialog(/^Close$/);
+  await page.waitForFunction(() => !document.querySelector('[data-whatsapp-zaps]'));
 
   // 11. A real Lexical message box (as on WhatsApp): `/zap 21 thanks` in a private chat
   //     is paid, the ⚡ message is posted only then, and typing the command again warns.
@@ -704,7 +848,7 @@ try {
     if (!box) await new Promise(r => setTimeout(r, 100));
   }
   assert.ok(box, 'the ⚡ button appeared');
-  if (shotDir) await hover.screenshot({ path: join(shotDir, '12-zap-pill.png'), clip: { x: 0, y: 0, width: 420, height: 160 } });
+  if (shotDir) await hover.screenshot({ path: join(shotDir, '12-zap-pill.png'), clip: { x: Math.max(0, box[0] - 300), y: Math.max(0, box[1] - 40), width: 400, height: 110 } });
   await hover.mouse.click((box[0] + box[4]) / 2, (box[1] + box[5]) / 2);
   let hoverText = null;
   for (let i = 0; i < 50 && !(hoverText && /Confirm zap/.test(hoverText)); i++) {
@@ -810,6 +954,12 @@ try {
     await toolbar.click('#tab-settings');
     await toolbar.screenshot({ path: join(shotDir, '8b-toolbar-settings.png') });
     await toolbar.click('#tab-people');
+    for (const theme of [{ palette: 'nostr-wot', appearance: 'dark' }, { palette: 'coracle', appearance: 'light' }, { palette: 'nostrich', appearance: 'dark' }]) {
+      await worker.evaluate(value => chrome.storage.local.set({ theme: value }), theme);
+      await toolbar.waitForTimeout(150);
+      await toolbar.screenshot({ path: join(shotDir, `8f-toolbar-${theme.palette}-${theme.appearance}.png`) });
+    }
+    await worker.evaluate(() => chrome.storage.local.remove('theme'));
   }
   const manifest = await worker.evaluate(() => chrome.runtime.getManifest());
   assert.equal(manifest.action.default_popup, 'popup.html');

@@ -173,3 +173,34 @@ describe('editMapping', () => {
     assert.throws(() => editMapping(s, { kind: 'global' }, 'name:zz', 'Z', 'a@x.example'), /no longer saved/);
   });
 });
+
+describe('connectMapping', () => {
+  const PK = 'a'.repeat(64);
+  const nostr = { name: 'Ana on Nostr', nip05: 'ana@example.com', picture: 'https://img.example/ana.png' };
+
+  it('links a saved contact to a profile, taking its address', async () => {
+    const { connectMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:ana', 'Ana', 'ana@old.example', 1);
+    const next = connectMapping(s, { kind: 'global' }, 'name:ana', { pubkey: PK, lud16: 'ana@new.example', nostr }, 5);
+    assert.deepEqual(next.global['name:ana'], {
+      address: 'ana@new.example', displayName: 'Ana', updatedAt: 5, pubkey: PK, nostr,
+    });
+  });
+
+  it('keeps the saved address when the profile has none, and works in a chat', async () => {
+    const { connectMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'chat', chatKey: CHAT }, 'id:1@c.us', 'Bo', 'bo@wallet.example', 1);
+    const next = connectMapping(s, { kind: 'chat', chatKey: CHAT }, 'id:1@c.us', { pubkey: PK, lud16: null, nostr }, 6);
+    const mapping = next.groups[CHAT]['id:1@c.us'];
+    assert.equal(mapping.address, 'bo@wallet.example');
+    assert.equal(mapping.pubkey, PK);
+    assert.equal(mapping.nostr?.name, 'Ana on Nostr');
+  });
+
+  it('refuses a contact that is gone, or a bad pubkey', async () => {
+    const { connectMapping } = await import('../src/domain/mappings.ts');
+    const s = saveMapping(emptyStore(), { kind: 'global' }, 'name:ana', 'Ana', 'ana@old.example', 1);
+    assert.throws(() => connectMapping(s, { kind: 'global' }, 'name:zz', { pubkey: PK, lud16: null, nostr }), /no longer saved/);
+    assert.throws(() => connectMapping(s, { kind: 'global' }, 'name:ana', { pubkey: 'nope', lud16: null, nostr }), /Invalid Nostr pubkey/);
+  });
+});

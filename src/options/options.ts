@@ -4,12 +4,13 @@
  */
 import {
   DEFAULT_REACTION_SATS, DIAGNOSTICS_KEY, MAPPINGS_STORAGE_KEY, MY_PUBKEY_KEY, REACTION_AMOUNT_KEY,
-  PICTURE_PROXY_KEY, REACTION_HOOK_STATUS_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
+  PICTURE_PROXY_KEY, REACTION_HOOK_STATUS_KEY, THEME_KEY, TRACE_REACTIONS_MS, TRACE_REACTIONS_UNTIL_KEY, ZAP_BUTTON_KEY,
 } from '../constants.ts';
 import {
-  editMapping, normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, withSnapshot,
+  connectMapping, editMapping, normalizeName, removeMapping, saveMapping, mergeStores, sanitizeStore, withSnapshot,
   type Mapping, type MappingScope, type MappingStore,
 } from '../domain/mappings.ts';
+import { PALETTES, hasAppearance, parseThemeChoice, resolveTheme, type Appearance, type PaletteId, type ThemeChoice } from '../ui/themes.ts';
 import { loadMappings, storeMappings, updateMappings } from '../services/mappingStore.ts';
 import { parseSearchQuery, shortNpub, type ProfileResult } from '../domain/nostr.ts';
 import type { BackgroundResponse } from '../domain/messages.ts';
@@ -44,11 +45,9 @@ async function ask<T>(message: unknown): Promise<T> {
 
 // ── People ──
 
-/** A round initial coloured from a stable key; the picture replaces it once fetched. */
-function avatar(label: string, key: string, picture: string | null | undefined): HTMLElement {
-  let hash = 0;
-  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const face = el('span', `avatar hue-${hash % 6}`, [...label.replace(/^[^\p{L}\p{N}]+/u, '')][0] ?? '?');
+/** A round initial in the theme's colours; the picture covers it once loaded. */
+function avatar(label: string, picture: string | null | undefined): HTMLElement {
+  const face = el('span', 'avatar', [...label.replace(/^[^\p{L}\p{N}]+/u, '')][0] ?? '?');
   face.setAttribute('aria-hidden', 'true');
   if (picture) showPicture(face, picture);
   return face;
@@ -133,8 +132,11 @@ function editRow(row: HTMLElement, mapping: Mapping, scope: MappingScope, contac
   });
 }
 
-/** One saved contact: who, their Nostr profile if linked, their Lightning Address. */
-function contactRow(mapping: Mapping, onDelete: () => void, onEdit?: (row: HTMLElement) => void): HTMLElement {
+/**
+ * One saved contact: who, their Nostr profile if linked, their Lightning
+ * Address. Contacts not linked to a profile yet offer to connect one.
+ */
+function contactRow(mapping: Mapping, onDelete: () => void, onEdit?: (row: HTMLElement) => void, onConnect?: () => void): HTMLElement {
   const row = el('div', 'contact');
   const who = el('div', 'who');
   const top = el('div', 'line');
@@ -148,6 +150,13 @@ function contactRow(mapping: Mapping, onDelete: () => void, onEdit?: (row: HTMLE
     const line = el('span', 'muted mono', shortNpub(npub));
     line.title = npub;
     who.append(line);
+  } else if (onConnect) {
+    const connect = el('button', 'small secondary connect', 'Connect Nostr');
+    connect.type = 'button';
+    connect.title = `Find ${mapping.displayName}'s Nostr profile`;
+    connect.setAttribute('aria-label', `Connect ${mapping.displayName} to a Nostr profile`);
+    connect.addEventListener('click', onConnect);
+    who.append(connect);
   }
   const remove = el('button', 'icon', '');
   remove.type = 'button';
@@ -166,7 +175,7 @@ function contactRow(mapping: Mapping, onDelete: () => void, onEdit?: (row: HTMLE
     tools.append(edit);
   }
   tools.append(remove);
-  row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.pubkey ?? mapping.address, mapping.nostr?.picture), who, tools);
+  row.append(avatar(mapping.nostr?.name ?? mapping.displayName, mapping.nostr?.picture), who, tools);
   return row;
 }
 
@@ -179,7 +188,7 @@ function contactList(store: MappingStore, scope: MappingScope): HTMLElement {
     const row = contactRow(mapping, async () => {
       await updateMappings(s => removeMapping(s, scope, contactKey));
       setStatus(`Deleted ${mapping.displayName}.`);
-    }, r => editRow(r, mapping, scope, contactKey));
+    }, r => editRow(r, mapping, scope, contactKey), () => startConnect(scope, contactKey, mapping));
     refreshPicture(row.querySelector('.avatar') as HTMLElement, scope, contactKey, mapping);
     return row;
   }));
@@ -234,9 +243,33 @@ function profileRow(profile: ProfileResult): HTMLElement {
   const npub = el('span', 'muted mono', shortNpub(profile.npub));
   npub.title = profile.npub;
   who.append(npub, profile.lud16 ? el('span', 'ln', `⚡ ${profile.lud16}`) : el('span', 'muted', 'No Lightning Address'));
-  row.append(avatar(profile.displayName ?? profile.name ?? '?', profile.pubkey, profile.picture), who);
+  row.append(avatar(profile.displayName ?? profile.name ?? '?', profile.picture), who);
 
-  if (profile.lud16) {
+  if (connecting) {
+    const target = connecting;
+    const form = el('form', 'save');
+    const connect = el('button', 'primary', 'Connect');
+    connect.type = 'submit';
+    connect.setAttribute('aria-label', `Connect ${target.mapping.displayName} to ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)}`);
+    form.append(connect);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await updateMappings(s => connectMapping(s, target.scope, target.contactKey, {
+          pubkey: profile.pubkey,
+          lud16: profile.lud16,
+          nostr: { name: profile.displayName ?? profile.name, nip05: profile.nip05Verified ? profile.nip05 : null, picture: profile.picture },
+        }));
+        const changed = profile.lud16 && profile.lud16 !== target.mapping.address ? ` Lightning Address: ${profile.lud16}.` : '';
+        setStatus(`Connected ${target.mapping.displayName} to ${profile.displayName ?? profile.name ?? shortNpub(profile.npub)}.${changed}`);
+        stopConnect();
+        clearQuery();
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err), true);
+      }
+    });
+    row.append(form);
+  } else if (profile.lud16) {
     const form = el('form', 'save');
     const name = el('input');
     name.required = true;
@@ -278,8 +311,10 @@ function showSearching() {
 
 function showResults(found: ProfileResult[]) {
   const status = $('search-status');
-  const payable = found.filter(p => p.lud16);
-  const unpayable = found.filter(p => !p.lud16);
+  // Connecting a saved contact, a profile without a Lightning Address is fine:
+  // the contact keeps the one it has.
+  const payable = connecting ? found : found.filter(p => p.lud16);
+  const unpayable = connecting ? [] : found.filter(p => !p.lud16);
   status.className = 'muted';
   status.textContent = payable.length
     ? (payable.some(p => p.followed) ? 'People you follow come first. ' : '') + 'Check the npub or a verified NIP-05 before saving: anyone can use any name.'
@@ -314,6 +349,42 @@ async function runSearch(query: string) {
 
 const queryInput = $<HTMLInputElement>('search-query');
 let typing: ReturnType<typeof setTimeout> | undefined;
+
+/** The saved contact being connected to a Nostr profile, while its search is open. */
+let connecting: { scope: MappingScope; contactKey: string; mapping: Mapping } | null = null;
+
+/** Search Nostr for a saved contact's name; the results offer to connect it. */
+function startConnect(scope: MappingScope, contactKey: string, mapping: Mapping) {
+  connecting = { scope, contactKey, mapping };
+  selectTab('tab-people');
+  $('connecting-text').textContent = `Connecting ${mapping.displayName}: pick their Nostr profile below, or search another name.`;
+  $('connecting').hidden = false;
+  queryInput.value = mapping.displayName;
+  $<HTMLButtonElement>('search-clear').hidden = false;
+  $('panel-people').scrollTop = 0;
+  window.scrollTo({ top: 0 });
+  queryInput.focus();
+  void runSearch(mapping.displayName);
+}
+
+function stopConnect() {
+  connecting = null;
+  $('connecting').hidden = true;
+}
+
+/** Empty the search box and go back to the idle state. */
+function clearQuery() {
+  clearTimeout(typing);
+  queryInput.value = '';
+  $<HTMLButtonElement>('search-clear').hidden = true;
+  resetSearch();
+}
+
+$('connecting-cancel').addEventListener('click', () => {
+  stopConnect();
+  clearQuery();
+  queryInput.focus();
+});
 /** Back to the idle state: no results, the hint shown again. */
 function resetSearch() {
   searchRun++;
@@ -370,6 +441,60 @@ clearSearch.addEventListener('click', () => {
   resetSearch();
   queryInput.focus();
 });
+
+// ── Theme ──
+
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+let themeChoice: ThemeChoice = parseThemeChoice(undefined);
+
+const paletteInputs = PALETTES.map(palette => {
+  const swatch = el('label', 'swatch');
+  const input = el('input');
+  input.type = 'radio';
+  input.name = 'palette';
+  input.value = palette.id;
+  input.addEventListener('change', () => { if (input.checked) void saveTheme({ ...themeChoice, palette: palette.id }); });
+  // A small picture of the palette: its background, a line of text, a button.
+  const preview = el('span', 'preview');
+  preview.setAttribute('aria-hidden', 'true');
+  preview.append(el('i'), el('b'));
+  swatch.append(input, preview, el('span', 'name', palette.label));
+  $('palettes').append(swatch);
+  return { palette: palette.id as PaletteId, preview, input };
+});
+const appearanceInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="appearance"]')];
+for (const input of appearanceInputs) {
+  input.addEventListener('change', () => { if (input.checked) void saveTheme({ ...themeChoice, appearance: input.value as Appearance }); });
+}
+
+/** Show the choice: the selected palette, each swatch in its colours now, the appearance. */
+function showTheme(choice: ThemeChoice) {
+  themeChoice = choice;
+  for (const { palette, preview, input } of paletteInputs) {
+    input.checked = palette === choice.palette;
+    // Only the picture takes the palette's colours; the label stays in the page's.
+    preview.dataset.theme = resolveTheme({ palette, appearance: choice.appearance }, prefersDark.matches);
+  }
+  const fixed = !hasAppearance(choice.palette);
+  for (const input of appearanceInputs) {
+    input.checked = input.value === choice.appearance;
+    input.disabled = fixed;
+  }
+  $('appearance-modes').setAttribute('aria-disabled', String(fixed));
+  $('appearance-hint').textContent = fixed
+    ? 'La Crypta has one palette and always looks like this.'
+    : choice.appearance === 'auto' ? 'Auto follows WhatsApp\'s light or dark theme inside WhatsApp, and your system\'s here.' : '';
+}
+
+async function saveTheme(choice: ThemeChoice) {
+  showTheme(choice);
+  await chrome.storage.local.set({ [THEME_KEY]: choice });
+}
+
+async function renderTheme() {
+  showTheme(parseThemeChoice((await chrome.storage.local.get(THEME_KEY))[THEME_KEY]));
+}
+prefersDark.addEventListener('change', () => showTheme(themeChoice));
 
 // ── Settings ──
 
@@ -504,11 +629,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (MAPPINGS_STORAGE_KEY in changes) void render();
   if (DIAGNOSTICS_KEY in changes) void renderDiagnosticsCount();
   if (REACTION_HOOK_STATUS_KEY in changes) void renderReactionStatus();
-void renderTrace();
-void renderReactionStatus();
+  if (TRACE_REACTIONS_UNTIL_KEY in changes) void renderTrace();
+  if (THEME_KEY in changes) showTheme(parseThemeChoice(changes[THEME_KEY].newValue));
 });
 
 void render();
+void renderTheme();
 void renderSettings();
 void renderDiagnosticsCount();
 void renderTrace();

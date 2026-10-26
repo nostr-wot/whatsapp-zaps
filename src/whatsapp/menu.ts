@@ -6,7 +6,8 @@
  * item copies an existing item's markup for its look, but it is our own node
  * with our own listener: React never sees it.
  */
-import { findOpenMenu, isHeaderMenuButton } from './dom.ts';
+import { normalizeText } from '../domain/command.ts';
+import { SELECTORS, findOpenMenu, isHeaderMenuButton } from './dom.ts';
 
 export const MENU_ITEM_ATTR = 'data-whatsapp-zaps-item';
 export const MENU_ITEM_LABEL = '⚡ Nostr profile';
@@ -89,4 +90,49 @@ export function installMenuItem(
     stopWatching();
     doc.removeEventListener('click', onClick, true);
   };
+}
+
+/** "Message Ana" and its translations: the item that says who a menu is about. */
+const MESSAGE_ITEM = /^(?:message|send message to|send a message to|mensaje a|mensaje para|enviar mensaje a|enviar un mensaje a|mensagem para|enviar mensagem para|enviar mensagem a|conversar com|envoyer un message à|message à|nachricht an|invia un messaggio a|invia messaggio a|messaggio a|scrivi a)\s+(.+)$/i;
+
+/** The person a menu is about, when one of its items offers to message them. */
+export function personInMenu(list: Element): string | null {
+  for (const item of Array.from(list.children)) {
+    const match = MESSAGE_ITEM.exec(normalizeText(item.textContent ?? ''));
+    const name = match?.[1].replace(/^~\s*/, '').trim();
+    if (name) return name;
+  }
+  return null;
+}
+
+const DROPDOWN_ITEM = SELECTORS.dropdownItem.join(', ');
+
+/**
+ * Add "⚡ Nostr profile" to WhatsApp's menus about a person — those offering
+ * to "Message <name>", like a group member's — opening the popup for them.
+ * Returns an uninstall function.
+ */
+export function installPersonMenuItem(
+  onOpen: (name: string) => void,
+  doc: Document = document,
+  shouldHandle: () => boolean = () => true,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const check = () => {
+    timer = undefined;
+    if (!shouldHandle()) return;
+    const menu = findOpenMenu(doc);
+    if (!menu || menu.list.querySelector(`[${MENU_ITEM_ATTR}]`)) return;
+    const name = personInMenu(menu.list);
+    if (!name) return;
+    menu.list.append(buildMenuItem(menu.template, () => { closeMenu(doc); onOpen(name); }));
+  };
+  const observer = new MutationObserver(records => {
+    if (timer) return;
+    const menuAppeared = records.some(record => Array.from(record.addedNodes).some(node =>
+      node.nodeType === 1 && ((node as Element).matches(DROPDOWN_ITEM) || !!(node as Element).querySelector(DROPDOWN_ITEM))));
+    if (menuAppeared) timer = setTimeout(check, 30);
+  });
+  observer.observe(doc.body, { childList: true, subtree: true });
+  return () => { observer.disconnect(); clearTimeout(timer); };
 }

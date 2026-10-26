@@ -13,6 +13,7 @@ const entries = {
   main: 'src/content/main.ts',
   isolated: 'src/content/isolated.ts',
   options: 'src/options/options.ts',
+  theme: 'src/options/theme.ts',
 };
 
 rmSync(outdir, { recursive: true, force: true });
@@ -30,12 +31,29 @@ await build({
   logLevel: 'info',
 });
 
+// The extension pages' theme stylesheet, generated from src/ui/themes.ts so
+// the page is drawn in the right colours before any script runs.
+const themesModule = await build({ entryPoints: ['src/ui/themes.ts'], bundle: true, format: 'esm', write: false, logLevel: 'silent' });
+const { THEMES, themeCss, themeVars, topoCss } = await import(`data:text/javascript;base64,${Buffer.from(themesModule.outputFiles[0].text).toString('base64')}`);
+const themeStyles = [
+  themeCss(id => `[data-theme="${id}"]`),
+  // Before theme.js has set data-theme (or without it): Nostr WoT Light or Dark.
+  `:root:not([data-theme]) { ${themeVars(THEMES.light)} }`,
+  `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ${themeVars(THEMES.dark)} } }`,
+].join('\n');
+
 const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
 writeFileSync(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 // The contacts page serves twice: as the options page, and as the toolbar
 // popup (same page, compact layout, see `body.popup` in its stylesheet).
 const optionsHtml = readFileSync('src/options/index.html', 'utf8')
-  .replace('<script type="module" src="./options.ts"></script>', '<script src="options.js"></script>');
+  .replace('<script src="./theme.ts"></script>', '<script src="theme.js"></script>')
+  .replace('<script type="module" src="./options.ts"></script>', '<script src="options.js"></script>')
+  .replace('/*@themes*/', () => themeStyles)
+  .replace('/*@topo*/', () => topoCss('body', 'fixed'));
+for (const marker of ['/*@themes*/', '/*@topo*/', './theme.ts', './options.ts']) {
+  if (optionsHtml.includes(marker)) throw new Error(`options.html still contains ${marker}`);
+}
 writeFileSync(`${outdir}/options.html`, optionsHtml);
 writeFileSync(`${outdir}/popup.html`, optionsHtml.replace('<body>', '<body class="popup">'));
 mkdirSync(`${outdir}/icons`, { recursive: true });

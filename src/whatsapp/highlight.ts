@@ -1,6 +1,8 @@
 /**
- * Colour the message box green and bold while it holds a `/zap` command, so it reads
- * as a payment and not as a message about to be sent.
+ * Colour the message box and make it bold while it holds a `/zap` command, so
+ * it reads as a payment and not as a message about to be sent. The colour is
+ * the chosen Nostr WoT theme's zap colour, picked to read on WhatsApp's light
+ * or dark background (see markColor in ui/themes.ts).
  *
  * WhatsApp's editor (Lexical) owns the text nodes and rewrites them, so the
  * colour comes from a stylesheet keyed on an attribute set on the editor's
@@ -9,19 +11,19 @@
 import { isZapCommand } from '../domain/command.ts';
 import { findComposer, readComposerText } from './dom.ts';
 import { attachStyles } from '../ui/styles.ts';
+import { THEMES } from '../ui/themes.ts';
 
 export const ZAP_ATTR = 'data-whatsapp-zaps-command';
 
-/** WhatsApp's green, as in the dialogs; the brighter shade WhatsApp uses on dark backgrounds. */
-export const ZAP_COLOR = '#008069';
-const ZAP_COLOR_DARK = '#06cf9c';
+/** Nostr WoT Light's zap colour, until the theme is known. */
+export const ZAP_COLOR = THEMES.light.zap;
 
-export const HIGHLIGHT_STYLE = `
-[${ZAP_ATTR}], [${ZAP_ATTR}] * { color: ${ZAP_COLOR} !important; caret-color: ${ZAP_COLOR} !important; }
+export function highlightStyle(color: string): string {
+  return `
+[${ZAP_ATTR}], [${ZAP_ATTR}] * { color: ${color} !important; caret-color: ${color} !important; }
 [${ZAP_ATTR}] { font-weight: 600; }
-/* WhatsApp's dark theme is its own setting, a class on <body>. */
-body.dark [${ZAP_ATTR}], body.dark [${ZAP_ATTR}] * { color: ${ZAP_COLOR_DARK} !important; caret-color: ${ZAP_COLOR_DARK} !important; }
 `;
+}
 
 /** Set or clear the attribute to match the composer's current text. */
 export function updateHighlight(doc: Document = document): void {
@@ -31,15 +33,27 @@ export function updateHighlight(doc: Document = document): void {
   if (on !== composer.hasAttribute(ZAP_ATTR)) composer.toggleAttribute(ZAP_ATTR, on);
 }
 
-/** Install the stylesheet and keep the attribute in step with typing. Returns an uninstall function. */
-export function installCommandHighlight(doc: Document = document): () => void {
-  const detach = attachStyles(doc, HIGHLIGHT_STYLE);
+/**
+ * Install the stylesheet and keep the attribute in step with typing.
+ * `setColor` repaints the command in another colour (a new theme).
+ */
+export function installCommandHighlight(doc: Document = document, color: string = ZAP_COLOR): { uninstall(): void; setColor(color: string): void } {
+  let current = color;
+  let detach = attachStyles(doc, highlightStyle(current));
   // Lexical may apply its own change after the event; read the text once it has.
   const onChange = () => { queueMicrotask(() => updateHighlight(doc)); };
   const events = ['input', 'keyup', 'paste', 'cut', 'focusin'];
   for (const type of events) doc.addEventListener(type, onChange, true);
-  return () => {
-    for (const type of events) doc.removeEventListener(type, onChange, true);
-    detach();
+  return {
+    uninstall: () => {
+      for (const type of events) doc.removeEventListener(type, onChange, true);
+      detach();
+    },
+    setColor: next => {
+      if (next === current) return;
+      current = next;
+      detach();
+      detach = attachStyles(doc, highlightStyle(next));
+    },
   };
 }

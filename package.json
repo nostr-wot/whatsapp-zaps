@@ -1,6 +1,6 @@
 {
   "name": "whatzaps",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "description": "WhatZaps: send Lightning zaps from WhatsApp Web with /zap, ⚡ reactions and Nostr profiles, paid through the Nostr WoT extension.",

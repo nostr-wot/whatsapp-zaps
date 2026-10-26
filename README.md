@@ -14,9 +14,9 @@ treats the chat as private and pays whoever the chat header names.
 /zap 1,000 @Bob
 ```
 
-While the message box holds a `/zap` command, its text turns WhatsApp green and
-bold, so it is clearly a payment and not a message. The command itself is never
-sent.
+While the message box holds a `/zap` command, its text turns bold and takes the
+theme's colour (Nostr WoT's indigo by default), so it is clearly a payment and
+not a message. The command itself is never sent.
 
 ### Replying to a message
 
@@ -181,14 +181,28 @@ When you pick someone from WhatsApp's mention list, the contact is stored by
 WhatsApp contact id. Typed names are stored by display name. If two saved
 contacts share a name, the dialog asks which one you meant.
 
-### From the contact info panel
+### ⚡ Nostr buttons in WhatsApp
 
-Open a contact's info in WhatsApp (their profile, with the Voice · Video ·
-Search buttons): WhatZaps adds a fourth button, **⚡ Nostr**, that opens the
-same Nostr profile popup as the ⋮ menu. The row is recognised by those
-buttons' labels (in several languages), and the new button copies WhatsApp's
-own, so it matches its look. In a group, a member's panel shows their phone
-number, and the popup is for that member.
+WhatZaps adds a **⚡ Nostr** button wherever WhatsApp shows ways to reach
+someone. It opens the same Nostr profile popup as the ⋮ menu:
+
+- **Contact and group info**, next to the Voice · Video · Search buttons.
+- **The chat header**, next to its call and search icons.
+- **Profile previews**, next to their message and call icons.
+
+These places are recognised by WhatsApp's own buttons, not by its markup: two
+or more side by side, named like its message, call, search and info actions.
+The names can be the captions under the icons or, for buttons with only an
+icon, their accessible names. Several languages are recognised. The new button
+copies the look of WhatsApp's buttons. Its bolt takes the theme's colour.
+
+WhatsApp's menus about a person (a group member's menu, which offers to
+"Message Ana") get a **⚡ Nostr profile** item too.
+
+The popup is for whoever that place is about. For the chat header, it is the
+open chat. Elsewhere it is the name or phone number shown there: a group
+member, or someone from the chat list. Names WhatsApp shows for chats are
+preferred when telling a name apart from other text.
 
 ### From a chat's ⋮ menu
 
@@ -207,16 +221,23 @@ you press Search. A WhatsApp name only reaches a relay if you choose to send it.
 ### Toolbar popup and contacts page
 
 Click the extension's toolbar icon for a small **popup** with three tabs:
-**People** (Nostr search and your saved contacts), **Groups** (links saved for
-one chat) and **Settings** (amounts, your npub, the ⚡ button, backup and
-troubleshooting). **Full page** opens the same list in a tab, which
-also has backup (JSON import and export); file dialogs close popups, so backup
-lives there. Both have:
+
+- **People:** Nostr search and your saved contacts.
+- **Groups:** links saved for one chat.
+- **Settings:** theme, amounts, your npub, the ⚡ button and troubleshooting.
+
+**Full page** opens the same page in a tab. Only the full page has backup (JSON
+import and export), because file dialogs close popups. Both pages have:
 
 - the same Nostr search, where each result can be saved under a WhatsApp name,
-- the saved mappings, which you can edit (name and Lightning Address — for
-  when someone changes their name in WhatsApp) or delete. Editing keeps the
+- the saved mappings, which you can edit or delete. Edit a contact's name and
+  Lightning Address when they change their WhatsApp name. Editing keeps the
   link to their Nostr profile.
+- **Connect Nostr** on every contact not yet linked to a Nostr profile (a
+  Lightning Address typed by hand, for example). It searches Nostr for their
+  name. Each result then offers **Connect**, which links the contact to that
+  profile and keeps its name. The contact takes the profile's Lightning
+  Address, or keeps its own when the profile has none.
 
 Everything about your contacts stays in this browser, in
 `chrome.storage.local`: which WhatsApp contact is which Nostr profile, and
@@ -276,6 +297,29 @@ is signed or published.
 The relay lists are in `src/constants.ts`. These lookups use the same
 safeguards as LNURL: no redirects, a timeout and a size cap.
 
+## Themes
+
+WhatZaps uses [Nostr WoT](https://github.com/nostr-wot/nostr-wot-extension)'s
+themes, so it looks like the wallet that pays. Choose one under
+**Settings → Theme**:
+
+- **Nostr WoT** (light and dark),
+- **La Crypta**, which has a single dark palette,
+- **Coracle**, **noStrudel**, **YakiHonne** and **Nostrich**, each in light and dark.
+
+The colours, cards, buttons, fields and the topographic background are Nostr
+WoT's.
+
+**Appearance** can be Light, Dark or **Auto**. Inside WhatsApp, Auto follows
+WhatsApp's own light or dark theme. On the extension's pages, it follows the
+system's.
+
+The theme covers the popup, the contacts page, the dialogs in WhatsApp and the
+⚡ button beside messages. WhatZaps also marks things on WhatsApp's own
+surfaces: the `/zap` command in the message box and the ⚡ Nostr bolts. Those
+take the theme's colour in the variant that reads on WhatsApp's background.
+La Crypta's lime is darkened on WhatsApp's light theme.
+
 ## How it works
 
 | Part | World | Job |
@@ -284,8 +328,10 @@ safeguards as LNURL: no redirects, a timeout and a size cap.
 | `src/content/main.ts` | page (MAIN) | Calls `window.webln.enable()` / `sendPayment()` |
 | `src/background.ts` | service worker | LNURL-pay (pay params, invoice) and Nostr profile search |
 | `src/whatsapp/dom.ts` | — | Every WhatsApp selector, in one table |
-| `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu |
-| `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in green in the message box |
+| `src/whatsapp/menu.ts` | — | Adds "⚡ Nostr profile" to the chat header's ⋮ menu and to menus about a person |
+| `src/whatsapp/contactInfo.ts` | — | Adds the ⚡ Nostr button beside WhatsApp's contact actions; works out who it is for |
+| `src/whatsapp/highlight.ts` | — | Shows a `/zap` command in the theme's colour in the message box |
+| `src/ui/themes.ts`, `themeWatch.ts` | — | Nostr WoT's palettes; follows the choice and WhatsApp's or the system's dark mode |
 | `src/whatsapp/replies.ts`, `reactions.ts` | — | The message last acted on; ⚡ reactions to it |
 | `src/options/` | extension page | Contacts page; also built as the toolbar popup (`popup.html`) |
 
@@ -333,13 +379,17 @@ relying on this:
 - WhatsApp's mention list after typing `@` (`[role="listbox"] [role="option"]` is assumed),
 - `body.dark`, which is how WhatsApp marks its dark theme (the dialogs follow it),
 - the chat header, which tells groups from private chats when no message
-  carries the group's id (a member list, "group info", or the group icon).
+  carries the group's id (a member list, "group info", or the group icon),
+- the `data-id` message rows used for the chat id,
+- contact actions: captions such as "Voice" under their icons, or accessible
+  names such as "Video call" (`aria-label`, `title`) on icon-only buttons,
+- menus about a person, recognised by an item such as "Message Ana",
+- chat names in the chat list (`#pane-side [title]`).
 
 WhatsApp's message box is a Lexical editor. The smoke test runs one with real
 Lexical (`tests/fixtures/lexical-composer.ts`), with mention nodes and a member
 list, because edits that work on a plain editable box can silently do nothing
 in Lexical.
-- the `data-id` message rows used for the chat id.
 
 If they've drifted, replace the fixture with a real capture.
 

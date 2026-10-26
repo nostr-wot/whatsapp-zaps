@@ -4,159 +4,199 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WhatZaps</title>
+  <!-- Sets data-theme before anything is drawn (see theme.ts). -->
+  <script src="./theme.ts"></script>
   <style>
+    /* Nostr WoT's themes: one rule per palette, written here by the build from src/ui/themes.ts. */
+    /*@themes*/
     :root {
-      /* WhatsApp Web's palette. */
-      --ground: #f0f2f5; --card: #ffffff; --fg: #111b21; --muted: #667781; --line: #e9edef; --field: #f0f2f5;
-      --tint: #f0f2f5; --zap: #00a884; --zap-strong: #008069; --zap-fg: #ffffff; --zap-soft: #d9fdd3;
-      --ok: #008069; --ok-soft: #d9fdd3; --bad: #ea0038; --nostr: #6d28d9; --nostr-soft: #ede7fe;
-      --shadow: 0 1px 3px rgba(11, 20, 26, .08);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --ground: #0b141a; --card: #111b21; --fg: #e9edef; --muted: #8696a0; --line: #222d34; --field: #202c33;
-        --tint: #202c33; --zap: #00a884; --zap-strong: #06cf9c; --zap-fg: #111b21; --zap-soft: #005c4b;
-        --ok: #06cf9c; --ok-soft: #0b3b33; --bad: #f15c6d; --nostr: #c4b5fd; --nostr-soft: #2e2550;
-        --shadow: none;
-        color-scheme: dark;
-      }
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "SF Mono", Monaco, Inconsolata, "Roboto Mono", monospace;
+      --radius-sm: 6px; --radius-md: 8px; --radius-panel: 10px; --radius-lg: 12px; --radius-xl: 16px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--ground); color: var(--fg); font: 14.2px/1.5 "Segoe UI", "Helvetica Neue", Helvetica, "Lucida Grande", Arial, Ubuntu, Cantarell, "Fira Sans", sans-serif; padding-inline: 16px; }
-    main { max-width: 720px; margin: 0 auto; padding-block: 24px 72px; }
+    html { background: var(--bg-html); }
+    body { margin: 0; min-height: 100vh; background: var(--bg-page-solid); color: var(--text-body);
+      font: 13px/1.45 var(--font-sans); padding-inline: 16px; }
+    /* Nostr WoT's topographic background (written here by the build). */
+    /*@topo*/
+    main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding-block: 28px 72px; }
 
     /* Header and tabs. */
     header { display: flex; align-items: center; gap: 12px; padding: 0 0 14px; }
     header .logo { width: 40px; height: 40px; border-radius: 11px; flex: none; }
     header .titles { flex: 1; min-width: 0; }
-    header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-height: 1.2; }
-    header .version { font-size: 12px; color: var(--muted); }
-    .lead { color: var(--muted); margin: 0 0 16px; max-width: 64ch; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: var(--zap-soft); color: var(--fg); border-radius: 6px; padding: 1px 6px; }
-    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
-    .tabs button { flex: 1; height: 42px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; }
-    .tabs button[aria-selected="true"] { color: var(--zap-strong); border-bottom-color: var(--zap); }
-    .tabs button:hover:not([aria-selected="true"]) { color: var(--fg); background: var(--tint); }
-    [role="tabpanel"] { display: grid; gap: 14px; }
+    header h1 { font-size: 18px; font-weight: 700; color: var(--text-heading); margin: 0; line-height: 1.2; }
+    header .version { font-size: 11px; color: var(--text-muted); }
+    .lead { color: var(--text-secondary); margin: 0 0 16px; max-width: 64ch; }
+    code { font-family: var(--font-mono); font-size: .92em; background: var(--brand-light); color: var(--brand); border-radius: var(--radius-sm); padding: 1px 6px; }
+    [role="tabpanel"] { display: grid; gap: 12px; }
     [role="tabpanel"][hidden] { display: none; }
 
-    section { background: var(--card); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); }
-    h2 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
-    h2 + p { margin: 0 0 12px; font-size: 13px; }
-    h3 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
-    .muted { color: var(--muted); }
+    /* Raised cards: frosted, lifted, hairline border. */
+    section { background: var(--surface-glass); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+      border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px; box-shadow: var(--shadow-card); }
+    h2 { font-size: 15px; font-weight: 700; color: var(--text-heading); margin: 0 0 2px; }
+    h2 + p { margin: 0 0 12px; font-size: 12px; }
+    h3 { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin: 16px 0 8px; }
+    .muted { color: var(--text-secondary); }
 
     /* Controls. */
-    input { font: inherit; height: 40px; padding: 0 12px; border: 1.5px solid transparent; border-radius: 10px; background: var(--field); color: var(--fg); min-width: 0; }
-    input::placeholder { color: var(--muted); }
-    input:focus { outline: none; border-color: var(--zap); background: var(--card); }
-    button { font: inherit; font-weight: 600; height: 36px; border-radius: 999px; padding: 0 16px; border: 1.5px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
-    button:hover:not(:disabled) { border-color: var(--zap); color: var(--zap-strong); }
-    button:disabled { opacity: .45; cursor: default; }
-    button.primary { background: var(--zap); border-color: var(--zap); color: var(--zap-fg); }
-    button.primary:hover:not(:disabled) { background: var(--zap-strong); border-color: var(--zap-strong); color: var(--zap-fg); }
-    button.small { height: 30px; padding: 0 12px; font-size: 13px; }
-    button.icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: 0; color: var(--muted); }
-    button.icon:hover:not(:disabled) { background: var(--tint); color: var(--bad); }
-    button:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--zap); outline-offset: 2px; }
+    input { font: inherit; min-height: 40px; padding: 8px 12px; border: 1px solid var(--control-border); border-radius: var(--radius-md);
+      background: var(--input-bg); color: var(--text-heading); min-width: 0; transition: border-color .15s, box-shadow .15s; }
+    input::placeholder { color: var(--text-muted); }
+    input:hover:not(:disabled) { border-color: var(--brand); }
+    input:focus { outline: none; border-color: var(--brand); box-shadow: var(--focus-ring); }
+    button { font: inherit; font-weight: 600; min-height: 40px; border-radius: var(--radius-md); padding: 8px 14px; cursor: pointer; white-space: nowrap;
+      border: 1px solid var(--card-border); background: transparent; color: var(--text-secondary); transition: background .15s, color .15s, border-color .15s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-heading); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: var(--brand); border-color: var(--brand); color: var(--text-on-brand); }
+    button.primary:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); color: var(--text-on-brand); }
+    button.secondary { background: var(--brand-light); border-color: transparent; color: var(--brand-hover); }
+    button.secondary:hover:not(:disabled) { background: var(--button-secondary-hover); color: var(--brand-hover); }
+    button.small { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+    button.icon { width: 32px; min-height: 32px; height: 32px; padding: 0; border: 0; color: var(--text-muted); }
+    button.icon:hover:not(:disabled) { background: var(--error-tint); color: var(--error); }
+    button.icon.edit:hover:not(:disabled) { background: var(--brand-tint-active); color: var(--brand); }
+    /* Segmented tabs, as Nostr WoT draws them. */
+    .tabs { display: flex; gap: 4px; padding: 3px; margin: 0 0 14px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-panel); }
+    .tabs button, .tabs button:hover:not(:disabled) { flex: 1; min-height: 32px; padding: 7px 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+    .tabs button:hover:not(:disabled) { color: var(--text-heading); }
+    .tabs button[aria-selected="true"], .tabs button[aria-selected="true"]:hover { background: var(--bg-elevated); color: var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+    button:focus-visible, .swatch:has(input:focus-visible), .segmented label:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
     @media (max-width: 600px) { .grid2 { grid-template-columns: 1fr; } }
-    label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
-    label.field input { color: var(--fg); }
-    label.check { display: flex; gap: 10px; align-items: center; margin: 12px 0 0; font-size: 13.5px; cursor: pointer; }
-    label.check input { width: 18px; height: 18px; accent-color: var(--zap); margin: 0; }
+    label.field { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-heading); }
+    /* Nostr WoT's switch. */
+    label.check { display: flex; flex-direction: row-reverse; gap: 12px; align-items: center; justify-content: space-between; margin: 12px 0 0; font-size: 13px; color: var(--text-body); cursor: pointer; }
+    label.check input { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 40px; min-height: 0; height: 22px; padding: 0; margin: 0;
+      border: 0; border-radius: 11px; background: var(--control-border); cursor: pointer; transition: background .2s; }
+    label.check input::before { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
+    label.check input:checked { background: var(--brand); }
+    label.check input:checked::before { transform: translateX(18px); background: var(--bg-elevated); }
+    label.check input:focus { box-shadow: none; }
     details { margin-top: 14px; }
-    summary { cursor: pointer; color: var(--zap-strong); font-weight: 600; font-size: 13.5px; }
+    summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; }
     details[open] summary { margin-bottom: 10px; }
+
+    /* Theme. */
+    .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 14px; }
+    @media (min-width: 640px) { .swatches { grid-template-columns: repeat(6, 1fr); } }
+    .swatch { position: relative; display: grid; gap: 8px; padding: 8px; border-radius: var(--radius-lg); border: 1.5px solid var(--card-border); cursor: pointer; background: transparent; }
+    .swatch:hover { background: var(--brand-tint-hover); }
+    .swatch:has(input:checked) { border-color: var(--brand); background: var(--brand-tint-active); }
+    .swatch input { position: absolute; opacity: 0; pointer-events: none; }
+    .swatch .preview { display: grid; gap: 5px; align-content: end; height: 52px; padding: 7px; border-radius: var(--radius-md); background: var(--bg-page); border: 1px solid var(--card-border); }
+    .swatch .preview i { display: block; height: 6px; border-radius: 3px; background: var(--text-muted); opacity: .5; width: 70%; }
+    .swatch .preview b { display: block; height: 12px; width: 55%; border-radius: 4px; background: var(--brand); }
+    .swatch .name { font-size: 12px; font-weight: 600; color: var(--text-heading); text-align: center; }
+    .segmented { display: flex; gap: 4px; padding: 3px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-panel); }
+    .segmented label { flex: 1; position: relative; display: grid; place-items: center; min-height: 32px; border-radius: var(--radius-md); font-size: 12px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+    .segmented label:has(input:checked) { background: var(--bg-elevated); color: var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+    .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+    .segmented[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+    .field-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-heading); margin: 0 0 6px; }
+    #appearance-hint { margin: 8px 0 0; font-size: 12px; }
+    #appearance-hint:empty { display: none; }
 
     /* Search. */
     .search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     .searchbox { position: relative; }
-    .searchbox svg { position: absolute; left: 12px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+    .searchbox svg { position: absolute; left: 12px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
     .searchbox input { width: 100%; padding-left: 38px; padding-right: 36px; }
-    .searchbox button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; padding: 0; border: 0; color: var(--muted); font-size: 18px; }
+    .searchbox input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+    .searchbox button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; min-height: 30px; height: 30px; padding: 0; border: 0; color: var(--text-muted); font-size: 18px; }
     .searchbox button[hidden] { display: none; }
-    .searchbar { position: sticky; top: 0; z-index: 3; background: var(--ground); padding: 8px 0 10px; }
-    .searchbar-title { display: block; margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-    .hint { margin: 0; font-size: 13px; }
+    .searchbar { position: sticky; top: 0; z-index: 3; padding: 8px 0 10px; background: var(--bg-page-solid); }
+    .searchbar-title { display: block; margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+    .hint { margin: 0; font-size: 12px; }
     .hint[hidden] { display: none; }
-    #search-status { margin: 10px 0 0; font-size: 13px; }
+    #search-status { margin: 10px 0 0; font-size: 12px; }
     .hint:not([hidden]) + #search-status { margin-top: 0; }
     #search-status:empty { display: none; }
+    #search-status.error { color: var(--error); }
     #search-results { margin-top: 10px; }
     #search-results:empty { display: none; }
+    .connecting { display: flex; gap: 10px; align-items: center; margin: 0 0 10px; padding: 10px 12px; border-radius: var(--radius-panel);
+      background: var(--brand-tint-active); border: 1px solid var(--brand); color: var(--text-heading); font-size: 12.5px; }
+    .connecting[hidden] { display: none; }
+    .connecting span { flex: 1; min-width: 0; }
 
-    /* People: saved contacts and search results share one card shape. */
-    .list, #search-results { display: grid; gap: 8px; }
-    .contact, .profile, .skeleton { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); }
-    .contact:hover, .profile:hover { border-color: color-mix(in srgb, var(--zap) 45%, var(--line)); }
+    /* People: saved contacts and search results, as Nostr WoT's grouped rows. */
+    .list, #search-results { display: grid; border: 1px solid var(--card-border); border-radius: var(--radius-lg); background: var(--surface-glass-heavy); overflow: hidden; }
+    .contact, .profile, .skeleton { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 12px; background: transparent; transition: background .15s; }
+    .contact + .contact, .profile + .profile, .skeleton + .skeleton, .list > * + *, #search-results > * + * { border-top: 1px solid var(--brand-tint-active); }
+    .contact:hover, .profile:hover { background: var(--brand-tint-hover); }
     .who { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+    .who strong { color: var(--text-heading); }
     .who .line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
-    .avatar { width: 44px; height: 44px; border-radius: 50%; position: relative; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 17px; color: #fff; text-transform: uppercase; flex: none; }
-    .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); }
-    .hue-0 { background: #00a884; } .hue-1 { background: #027eb5; } .hue-2 { background: #c4532d; }
-    .hue-3 { background: #a62c71; } .hue-4 { background: #5f66cd; } .hue-5 { background: #1f7aec; }
-    .chip { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; justify-self: start; }
-    .verified { color: var(--ok); }
-    .chip.verified { background: var(--ok-soft); }
-    .chip.unverified { background: var(--line); color: var(--muted); }
-    .chip.follows { background: var(--zap-soft); color: var(--zap-strong); }
-    .chip.nostr { background: var(--nostr-soft); color: var(--nostr); }
-    .ln { color: var(--zap-strong); font-weight: 600; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    .tools { display: flex; gap: 2px; }
-    button.icon.edit:hover:not(:disabled) { color: var(--zap-strong); }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; position: relative; overflow: hidden; display: grid; place-items: center; font-weight: 700; font-size: 16px;
+      background: var(--brand-light); color: var(--brand); text-transform: uppercase; flex: none; }
+    .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--bg-elevated); }
+    .chip { display: inline-flex; align-items: center; padding: 1px 7px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); font-size: 11px; font-weight: 600; color: var(--text-secondary); justify-self: start; }
+    .verified { color: var(--success); }
+    .chip.verified { border-color: var(--success-tint); background: var(--success-tint); color: var(--success); }
+    .chip.follows { border-color: var(--brand); background: var(--brand-tint-active); color: var(--brand); }
+    .chip.nostr { border-color: transparent; background: var(--brand-light); color: var(--brand); }
+    .ln { color: var(--zap); font-weight: 600; }
+    .mono { font-family: var(--font-mono); font-size: 11px; }
+    .tools { display: flex; gap: 2px; align-items: center; }
     .contact.editing { grid-template-columns: auto 1fr; }
     form.edit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     form.edit .edit-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
     @media (max-width: 600px) { form.edit { grid-template-columns: 1fr; } }
     body.popup form.edit { grid-template-columns: 1fr; }
     .profile .save { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .profile .save input { width: 13em; max-width: 100%; height: 36px; }
+    .profile .save input { width: 13em; max-width: 100%; min-height: 36px; }
+    .profile .save button { min-height: 36px; }
     @media (max-width: 600px) { .profile { grid-template-columns: auto 1fr; } .profile .save { grid-column: 1 / -1; justify-content: flex-start; } }
-    .empty { margin: 0; padding: 18px 14px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13px; text-align: center; }
+    button.connect { justify-self: start; margin-top: 4px; }
+    .empty { margin: 0; padding: 18px 14px; border-radius: var(--radius-lg); border: 1.5px dashed var(--card-border); color: var(--text-muted); font-size: 12px; text-align: center; }
     .skeleton { grid-template-columns: auto 1fr; animation: pulse 1.2s ease-in-out infinite; }
-    .skeleton-dot { background: var(--tint); }
+    .skeleton-dot { background: var(--card-active); }
     .skeleton-lines { display: grid; gap: 6px; }
-    .skeleton-lines span { height: 10px; border-radius: 5px; background: var(--tint); }
+    .skeleton-lines span { height: 10px; border-radius: 5px; background: var(--card-active); }
     .skeleton-lines span:first-child { width: 50%; } .skeleton-lines span:last-child { width: 75%; }
     @keyframes pulse { 50% { opacity: .55; } }
-    .count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--tint); border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
-    #reaction-status { font-size: 13px; margin: 0 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--tint); }
+    .count { font-size: 11px; font-weight: 700; color: var(--brand); background: var(--brand-light); border-radius: var(--radius-sm); padding: 1px 7px; margin-left: 6px; vertical-align: 2px; }
+    #reaction-status { font-size: 12px; margin: 0 0 4px; padding: 10px 12px; border-radius: var(--radius-panel); background: var(--card-bg); border: 1px solid var(--card-border); }
     #reaction-status:empty { display: none; }
 
-    /* Snackbar, as WhatsApp shows them. */
+    /* Snackbar. */
     #status { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 20px); max-width: min(560px, calc(100vw - 32px));
-      padding: 12px 18px; border-radius: 10px; background: #233138; color: #e9edef; font-size: 14px; font-weight: 500;
-      box-shadow: 0 6px 20px rgba(11, 20, 26, .3); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; }
+      padding: 12px 16px; border-radius: var(--radius-lg); background: var(--bg-elevated); color: var(--text-heading); border: 1px solid var(--card-border);
+      font-size: 13px; font-weight: 600; box-shadow: var(--shadow-modal); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 10; }
     #status.show { opacity: 1; transform: translate(-50%, 0); }
-    #status.error { background: #b3002e; color: #fff; }
+    #status.error { color: var(--error); border-color: var(--error); }
     @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } #status { transition: none; } }
     .popup-only { display: none; }
 
     /* Toolbar popup: the same page as a small app. Chrome caps popups at 800×600.
        The header and tabs stay put and each tab scrolls inside; the People tab's
        search bar is pinned at the top of that scroll. */
-    body.popup { width: 400px; height: 600px; overflow: hidden; padding-inline: 0; background: var(--card); }
+    body.popup { width: 400px; height: 600px; min-height: 0; overflow: hidden; padding-inline: 0; }
     body.popup main { height: 100%; display: flex; flex-direction: column; padding: 0; max-width: none; }
-    body.popup header { flex: none; padding: 12px 16px; margin: 0; border-bottom: 0; }
+    body.popup header { flex: none; padding: 12px 14px 10px; margin: 0; }
     body.popup header .logo { width: 32px; height: 32px; border-radius: 9px; }
     body.popup header h1 { font-size: 16px; }
     body.popup .lead { display: none; }
-    body.popup .tabs { flex: none; margin: 0; padding: 0 8px; }
-    body.popup [role="tabpanel"] { flex: 1; min-height: 0; overflow-y: auto; display: block; overscroll-behavior: contain; }
+    body.popup .tabs { flex: none; margin: 0 12px 10px; }
+    body.popup [role="tabpanel"] { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 10px; padding: 0 12px 14px; overscroll-behavior: contain; }
     body.popup [role="tabpanel"][hidden] { display: none; }
-    body.popup .searchbar { background: var(--card); padding: 10px 16px; border-bottom: 1px solid var(--line); }
-    body.popup section { border-radius: 0; box-shadow: none; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    body.popup .searchbar { margin: 0 -12px; padding: 0 12px 10px; background: var(--bg-page-solid); }
+    body.popup section { padding: 14px; }
     body.popup h2 { font-size: 14px; }
     body.popup .grid2 { grid-template-columns: 1fr; }
     body.popup .profile { grid-template-columns: auto 1fr; }
     body.popup .profile .save { grid-column: 1 / -1; justify-content: flex-start; }
     body.popup .profile .save input { flex: 1; width: auto; }
+    body.popup .swatches { grid-template-columns: repeat(3, 1fr); }
     body.popup #backup { display: none; }
     body.popup .popup-only { display: block; }
-    body.popup button.popup-only { display: inline-flex; align-items: center; }
+    body.popup button.popup-only { display: inline-flex; }
   </style>
 </head>
 <body>
@@ -193,6 +233,10 @@
       </div>
 
       <section id="search-area">
+        <div class="connecting" id="connecting" hidden>
+          <span id="connecting-text"></span>
+          <button type="button" class="small" id="connecting-cancel">Cancel</button>
+        </div>
         <p class="hint muted" id="search-hint">Search by name, npub or NIP-05 and save the Lightning Address from their profile. Searches go to public Nostr relays.</p>
         <p id="search-status" class="muted" aria-live="polite"></p>
         <div id="search-results"></div>
@@ -222,6 +266,19 @@
     </div>
 
     <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+      <section id="appearance">
+        <h2>Theme</h2>
+        <p class="muted">Nostr WoT's colours, for this page and for WhatZaps in WhatsApp.</p>
+        <div class="swatches" id="palettes" role="radiogroup" aria-label="Theme"></div>
+        <span class="field-label" id="appearance-label">Appearance</span>
+        <div class="segmented" id="appearance-modes" role="radiogroup" aria-labelledby="appearance-label">
+          <label><input type="radio" name="appearance" value="auto"> Auto</label>
+          <label><input type="radio" name="appearance" value="light"> Light</label>
+          <label><input type="radio" name="appearance" value="dark"> Dark</label>
+        </div>
+        <p class="muted" id="appearance-hint"></p>
+      </section>
+
       <section>
         <h2>Zapping</h2>
         <p class="muted">Your npub is optional: it only reads your public follow list, to show people you follow first. Nothing is signed or published.</p>

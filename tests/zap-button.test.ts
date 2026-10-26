@@ -32,6 +32,17 @@ describe('installZapButton', () => {
     assert.equal(button().hidden, true);
   });
 
+  it('draws in the chosen Nostr WoT theme', () => {
+    installDom(FIXTURE);
+    for (const el of document.querySelectorAll('[data-pre-plain-text]')) {
+      (el as HTMLElement).getBoundingClientRect = () => ({ top: 100, left: 20, right: 220, bottom: 140, width: 200, height: 40, x: 20, y: 100, toJSON() {} });
+    }
+    installZapButton(() => {}, { amount: () => 21, requireTrusted: false, theme: () => 'nostrich' });
+    document.querySelector('#main [data-id] span')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+    const host = document.querySelector('[data-whatsapp-zaps-ui="zap-button"]') as HTMLElement;
+    assert.equal(host.dataset.theme, 'nostrich');
+  });
+
   it('never appears on one’s own messages', () => {
     rows()[1].querySelector('span')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
     assert.equal(button().hidden, true);

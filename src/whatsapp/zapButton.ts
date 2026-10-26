@@ -6,20 +6,25 @@
  * observed. Own messages get no button.
  */
 import { attachStyles } from '../ui/styles.ts';
+import { THEMES, themeCss, themeVars, type ThemeId } from '../ui/themes.ts';
 import { messageAreaOf, messageRowOf, readMessageAuthor } from './dom.ts';
 
+/** A Nostr WoT button in the chosen theme: its zap colour, 8px corners. */
 const STYLE = `
 :host { all: initial; }
+:host { ${themeVars(THEMES.light)} }
+${themeCss(id => `:host([data-theme="${id}"])`)}
 button {
-  position: fixed; z-index: 2147483645; height: 28px; padding: 0 11px 0 8px; margin: 0;
-  display: inline-flex; align-items: center; gap: 3px; border-radius: 999px; border: 0; cursor: pointer;
-  background: #00a884; color: #fff; white-space: nowrap;
-  font: 700 13px/1 "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; font-variant-numeric: tabular-nums;
-  box-shadow: 0 2px 6px rgba(11, 20, 26, .3);
-  transition: transform .1s, background .1s;
+  position: fixed; z-index: 2147483645; height: 28px; padding: 0 10px 0 7px; margin: 0;
+  display: inline-flex; align-items: center; gap: 3px; border-radius: 8px; border: 0; cursor: pointer;
+  background: var(--zap); color: var(--text-on-brand); white-space: nowrap;
+  font: 700 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+  transition: transform .1s, filter .1s;
 }
-button .bolt { color: #ffd23f; font-size: 14px; }
-button:hover, button:focus-visible { background: #008069; transform: translateY(-1px); outline: none; }
+button .bolt { font-size: 13px; }
+button:hover, button:focus-visible { filter: brightness(1.08); transform: translateY(-1px); outline: none; }
+button:focus-visible { box-shadow: 0 2px 8px rgba(0, 0, 0, .28), var(--focus-ring); }
 button[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 `;
@@ -30,6 +35,8 @@ export interface ZapButtonOptions {
   /** Clicks a person made (not scripts) only, unless tests say otherwise. */
   requireTrusted?: boolean;
   shouldHandle?: () => boolean;
+  /** The Nostr WoT theme to draw in; Nostr WoT Light without it. */
+  theme?: () => ThemeId;
 }
 
 /** Where the button goes: just right of the message bubble, at its top. */
@@ -66,14 +73,17 @@ export function installZapButton(onZap: (row: HTMLElement) => void, options: Zap
     const at = buttonPosition(row);
     if (!at) return;
     current = row;
+    if (options.theme) host.dataset.theme = options.theme();
     const amount = options.amount();
     amountText.textContent = amount.toLocaleString('en-US');
     const label = `Zap ${amount.toLocaleString('en-US')} sats to ${readMessageAuthor(row).name ?? 'the author'}`;
     button.title = label;
     button.setAttribute('aria-label', label);
     button.style.top = `${at.top}px`;
-    button.style.left = `${at.left}px`;
     button.hidden = false;
+    // Keep the whole button on screen beside a message that reaches the right edge.
+    const width = button.getBoundingClientRect().width || 64;
+    button.style.left = `${Math.max(4, Math.min(at.left, window.innerWidth - width - 8))}px`;
   };
 
   const onOver = (event: Event) => {

@@ -227,6 +227,21 @@ export function editMapping(
   return { store: saveMapping(without, scope, newKey, displayName, address, now, current.pubkey, current.nostr), contactKey: newKey };
 }
 
+/**
+ * Connect a saved contact to a Nostr profile: keep its key and name, take the
+ * profile's pubkey and snapshot, and its Lightning Address when it has one
+ * (otherwise the contact keeps the address it had).
+ * @throws when the contact is gone or the pubkey is invalid.
+ */
+export function connectMapping(
+  store: MappingStore, scope: MappingScope, contactKey: string,
+  profile: { pubkey: string; lud16: string | null; nostr: NostrSnapshot }, now: number = Date.now(),
+): MappingStore {
+  const current = findMapping(store, scope, contactKey);
+  if (!current) throw new Error('That contact is no longer saved.');
+  return saveMapping(store, scope, contactKey, current.displayName, profile.lud16 ?? current.address, now, profile.pubkey, profile.nostr);
+}
+
 /** The mapping saved for exactly this contact key in this scope, if any. */
 export function findMapping(store: MappingStore, scope: MappingScope, contactKey: string): Mapping | null {
   const bucket = scope.kind === 'global' ? store.global : store.groups[scope.chatKey];

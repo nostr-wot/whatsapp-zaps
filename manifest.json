@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WhatZaps",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Zap your WhatsApp contacts with Lightning: /zap, ⚡ reactions and Nostr profiles, paid through the Nostr WoT wallet.",
   "permissions": [
     "storage"
